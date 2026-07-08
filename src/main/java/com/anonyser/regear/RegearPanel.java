@@ -92,6 +92,7 @@ class RegearPanel extends PluginPanel
 		content.add(listButtonsRow());
 		content.add(vspace());
 		content.add(enabledRow());
+		content.add(enableAllRow());
 		content.add(labeled("Visible", visibleCount));
 		content.add(labeled("Pattern", patternSelector));
 		content.add(customFieldRow());
@@ -173,6 +174,19 @@ class RegearPanel extends PluginPanel
 	{
 		enabledToggle.setAlignmentX(LEFT_ALIGNMENT);
 		return enabledToggle;
+	}
+
+	private JComponent enableAllRow()
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 2, 3, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		final JButton on = compact(button("Enable all", e -> setAllEnabled(true)));
+		final JButton off = compact(button("Disable all", e -> setAllEnabled(false)));
+		off.setToolTipText("Disable every list so the bank is unfiltered (easier to search while adding items)");
+		row.add(on);
+		row.add(off);
+		return row;
 	}
 
 	private JComponent customFieldRow()
@@ -855,6 +869,16 @@ class RegearPanel extends PluginPanel
 			}
 		}
 		return n;
+	}
+
+	private void setAllEnabled(boolean on)
+	{
+		for (RegearList l : lists())
+		{
+			l.enabled = on;
+		}
+		plugin.commit();
+		refreshForSelection();
 	}
 
 	private void commitAnchor()
