@@ -48,17 +48,25 @@ class RegearBankOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		final Widget container = client.getWidget(InterfaceID.Bankmain.ITEMS);
-		if (container == null || container.isHidden())
-		{
-			return null;
-		}
 		if (controller.isTutorialActive())
 		{
-			drawTutorialBanner(graphics, container);
+			final Widget bank = client.getWidget(InterfaceID.Bankmain.ITEMS);
+			if (bank == null || bank.isHidden())
+			{
+				drawOpenBankMessage(graphics);
+			}
+			else
+			{
+				drawTutorial(graphics, bank);
+			}
 			return null;
 		}
 		if (!config.applyInBank())
+		{
+			return null;
+		}
+		final Widget container = client.getWidget(InterfaceID.Bankmain.ITEMS);
+		if (container == null || container.isHidden())
 		{
 			return null;
 		}
@@ -106,29 +114,134 @@ class RegearBankOverlay extends Overlay
 		return null;
 	}
 
-	private void drawTutorialBanner(Graphics2D g, Widget container)
+	private void drawOpenBankMessage(Graphics2D g)
 	{
-		final Rectangle b = container.getBounds();
-		if (b == null)
-		{
-			return;
-		}
+		final String msg = "Open the bank to start the Regear tutorial";
+		g.setFont(FontManager.getRunescapeBoldFont());
+		final int w = g.getFontMetrics().stringWidth(msg) + 24;
+		final int h = 34;
+		final int x = Math.max(4, (client.getCanvasWidth() - w) / 2);
+		final int y = 70;
 		final boolean on = System.currentTimeMillis() / 450 % 2 == 0;
-		final int x = b.x;
-		final int y = b.y;
-		final int w = Math.max(180, b.width);
-		final int h = 40;
-		g.setColor(new Color(0, 0, 0, 200));
+		g.setColor(new Color(0, 0, 0, 205));
 		g.fillRoundRect(x, y, w, h, 8, 8);
 		g.setStroke(new BasicStroke(3f));
 		g.setColor(on ? new Color(0, 220, 60) : new Color(230, 210, 0));
 		g.drawRoundRect(x, y, w, h, 8, 8);
+		g.setColor(Color.WHITE);
+		g.drawString(msg, x + 12, y + 22);
+	}
+
+	private void drawTutorial(Graphics2D g, Widget container)
+	{
+		final Rectangle cb = container.getBounds();
+		final Point loc = container.getCanvasLocation();
+		if (cb == null || loc == null)
+		{
+			return;
+		}
+		final RegearTutorial t = controller.getTutorial();
+
+		// Dim the whole bank red so the green targets stand out.
+		g.setColor(new Color(150, 20, 20, 90));
+		g.fillRect(cb.x, cb.y, cb.width, cb.height);
+
+		if (!t.hasSteps())
+		{
+			drawStepBanner(g, cb, "Add a few items to your bank",
+				"The tutorial needs at least two items to demonstrate.");
+			return;
+		}
+		if (t.isNotesStep())
+		{
+			drawNotes(g, cb);
+			return;
+		}
+		final RegearTutorial.Step step = t.current();
+		if (step == null)
+		{
+			return;
+		}
+		drawStepBanner(g, cb, "(" + t.stepNumber() + "/" + t.stepCount() + ")  " + step.title, step.instruction);
+
+		final boolean pulse = System.currentTimeMillis() / 350 % 2 == 0;
+		final int expected = t.expectedBox();
+		for (int k = 0; k < t.boxCount(); k++)
+		{
+			final int slot = t.slotForBox(k);
+			if (slot < 0)
+			{
+				continue;
+			}
+			final int x = loc.getX() + RegearBankController.slotToX(slot);
+			final int y = loc.getY() + RegearBankController.slotToY(slot);
+			final boolean done = k < t.clicked();
+			final boolean next = k == expected;
+			g.setColor(new Color(0, 0, 0, 215));
+			g.fillRect(x - 1, y - 1, 38, 34);
+			final BufferedImage img = itemManager.getImage(t.itemForBox(k));
+			if (img != null)
+			{
+				g.drawImage(img, x, y, null);
+			}
+			g.setStroke(new BasicStroke(next && pulse ? 3f : 2f));
+			g.setColor(done ? new Color(90, 90, 90) : next ? new Color(0, 255, 90) : new Color(0, 170, 60));
+			g.drawRect(x - 1, y - 1, 38, 34);
+			g.setFont(FontManager.getRunescapeBoldFont());
+			g.setColor(Color.BLACK);
+			g.drawString(String.valueOf(k + 1), x + 2, y + 12);
+			g.setColor(done ? new Color(170, 170, 170) : Color.WHITE);
+			g.drawString(String.valueOf(k + 1), x + 1, y + 11);
+		}
+	}
+
+	private void drawStepBanner(Graphics2D g, Rectangle cb, String title, String instruction)
+	{
+		final int x = cb.x;
+		final int y = cb.y - 44;
+		final int w = Math.max(200, cb.width);
+		final int h = 40;
+		g.setColor(new Color(0, 0, 0, 215));
+		g.fillRoundRect(x, y, w, h, 8, 8);
+		g.setStroke(new BasicStroke(2f));
+		g.setColor(new Color(0, 200, 60));
+		g.drawRoundRect(x, y, w, h, 8, 8);
 		g.setFont(FontManager.getRunescapeBoldFont());
 		g.setColor(Color.WHITE);
-		g.drawString("REGEAR TUTORIAL", x + 8, y + 16);
-		g.setFont(FontManager.getRunescapeSmallFont());
-		g.setColor(on ? new Color(255, 90, 90) : new Color(255, 170, 170));
-		g.drawString("Guided steps coming next -- press \"End tutorial\" in the panel to stop", x + 8, y + 32);
+		g.drawString(title, x + 8, y + 16);
+		if (instruction != null)
+		{
+			g.setFont(FontManager.getRunescapeSmallFont());
+			g.setColor(new Color(200, 255, 200));
+			g.drawString(instruction, x + 8, y + 32);
+		}
+	}
+
+	private void drawNotes(Graphics2D g, Rectangle cb)
+	{
+		final int x = cb.x + 8;
+		int y = cb.y + 22;
+		g.setFont(FontManager.getRunescapeBoldFont());
+		g.setColor(new Color(0, 255, 90));
+		g.drawString("You're ready! A few tips:", x, y);
+		g.setFont(FontManager.getRunescapeFont());
+		g.setColor(Color.WHITE);
+		final String[] notes = {
+			"- Right-click a bank / inventory item -> Add to Regear.",
+			"- Add by item id, or get the Item ID and Lookup plugin.",
+			"- Patterns: Single, Vertical, Z, or build your own Custom.",
+			"- Enable a list, open the bank, click the green slots.",
+		};
+		for (String note : notes)
+		{
+			y += 18;
+			g.drawString(note, x, y);
+		}
+		y += 26;
+		final boolean on = System.currentTimeMillis() / 400 % 2 == 0;
+		g.setFont(FontManager.getRunescapeBoldFont());
+		g.setColor(on ? new Color(255, 80, 80) : new Color(255, 180, 180));
+		g.drawString("Click anywhere to finish the tutorial", x, y);
 	}
 
 	private void drawProgress(Graphics2D g, Rectangle b, int withdrawn, int required)

@@ -36,6 +36,8 @@ import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
 import net.runelite.client.events.ConfigChanged;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.game.ItemStats;
+import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
 import net.runelite.client.plugins.PluginDescriptor;
 import net.runelite.client.ui.ClientToolbar;
@@ -90,6 +92,9 @@ public class RegearPlugin extends Plugin
 	private OverlayManager overlayManager;
 
 	@Inject
+	private MouseManager mouseManager;
+
+	@Inject
 	private RegearBankController bankController;
 
 	@Inject
@@ -104,6 +109,18 @@ public class RegearPlugin extends Plugin
 
 	private boolean bankOpen;
 	private int tick;
+
+	// Intercepts bank clicks while the tutorial runs, so nothing is actually withdrawn and each click
+	// on a green box advances the lesson instead.
+	private final net.runelite.client.input.MouseListener tutorialMouse = new net.runelite.client.input.MouseAdapter()
+	{
+		@Override
+		public java.awt.event.MouseEvent mousePressed(java.awt.event.MouseEvent e)
+		{
+			return handleTutorialClick(e);
+		}
+	};
+
 	// Inventory snapshot marking the start of the current regear ("0 withdrawn from here"). Captured
 	// when the bank opens and when a sequence is reset. Progress is current inventory minus this
 	// baseline, so lane positions are derived from what you actually hold and self-correct on any
@@ -134,6 +151,7 @@ public class RegearPlugin extends Plugin
 
 		overlayManager.add(idOverlay);
 		overlayManager.add(bankOverlay);
+		mouseManager.registerMouseListener(tutorialMouse);
 		log.debug("[life] Regear started with {} list(s)", data.lists.size());
 	}
 
@@ -143,6 +161,7 @@ public class RegearPlugin extends Plugin
 		log.debug("[life] Regear stopped");
 		client.setInventoryDragDelay(DEFAULT_DRAG_DELAY);
 		bankController.setTutorialActive(false);
+		mouseManager.unregisterMouseListener(tutorialMouse);
 		overlayManager.remove(idOverlay);
 		overlayManager.remove(bankOverlay);
 		clientToolbar.removeNavigation(navButton);
@@ -176,7 +195,121 @@ public class RegearPlugin extends Plugin
 
 	void toggleTutorial()
 	{
-		bankController.setTutorialActive(!bankController.isTutorialActive());
+		final boolean nowActive = !bankController.isTutorialActive();
+		bankController.setTutorialActive(nowActive);
+		if (nowActive)
+		{
+			if (bankOpen)
+			{
+				startTutorialContent();
+			}
+			// If the bank is closed the overlay shows "open the bank"; content starts on bank open.
+		}
+		else
+		{
+			bankController.getTutorial().reset();
+		}
+	}
+
+	/** Read whatever bank is open and pick example items: gear if 3+ equippable, else any items. */
+	private void startTutorialContent()
+	{
+		clientThread.invoke(() ->
+		{
+			final ItemContainer bank = client.getItemContainer(InventoryID.BANK);
+			final List<Integer> any = new ArrayList<>();
+			final List<Integer> equip = new ArrayList<>();
+			final Set<Integer> seen = new HashSet<>();
+			if (bank != null)
+			{
+				for (Item it : bank.getItems())
+				{
+					final int id = it.getId();
+					if (id <= 0 || !seen.add(id))
+					{
+						continue;
+					}
+					any.add(id);
+					final ItemStats st = itemManager.getItemStats(id);
+					if (st != null && st.getEquipment() != null)
+					{
+						equip.add(id);
+					}
+					if (any.size() >= 24)
+					{
+						break;
+					}
+				}
+			}
+			final boolean gear = equip.size() >= 3;
+			final List<Integer> examples = new ArrayList<>(gear ? equip : any);
+			if (examples.size() > 6)
+			{
+				examples.subList(6, examples.size()).clear();
+			}
+			bankController.getTutorial().start(gear, examples);
+		});
+	}
+
+	private java.awt.event.MouseEvent handleTutorialClick(java.awt.event.MouseEvent e)
+	{
+		if (!bankController.isTutorialActive() || !bankOpen)
+		{
+			return e;
+		}
+		final RegearTutorial t = bankController.getTutorial();
+		final Widget container = client.getWidget(InterfaceID.Bankmain.ITEMS);
+		if (container == null)
+		{
+			return e;
+		}
+		final java.awt.Rectangle cb = container.getBounds();
+		final net.runelite.api.Point loc = container.getCanvasLocation();
+		if (cb == null || loc == null || !cb.contains(e.getPoint()))
+		{
+			return e; // outside the bank items: let the click through (bank close button etc.)
+		}
+		if (!t.hasSteps())
+		{
+			return e;
+		}
+		if (t.isNotesStep())
+		{
+			t.clickBox(0);
+			checkTutorialFinish();
+		}
+		else
+		{
+			for (int k = 0; k < t.boxCount(); k++)
+			{
+				final int slot = t.slotForBox(k);
+				if (slot < 0)
+				{
+					continue;
+				}
+				final java.awt.Rectangle r = new java.awt.Rectangle(
+					loc.getX() + RegearBankController.slotToX(slot),
+					loc.getY() + RegearBankController.slotToY(slot), 36, 32);
+				if (r.contains(e.getPoint()))
+				{
+					t.clickBox(k);
+					checkTutorialFinish();
+					break;
+				}
+			}
+		}
+		// Swallow every bank click while the tutorial is running, so nothing is actually withdrawn.
+		e.consume();
+		return e;
+	}
+
+	private void checkTutorialFinish()
+	{
+		if (bankController.getTutorial().isFinished())
+		{
+			bankController.setTutorialActive(false);
+			bankController.getTutorial().reset();
+		}
 	}
 
 	void setHideTutorial(boolean hide)
@@ -292,6 +425,10 @@ public class RegearPlugin extends Plugin
 			}
 			reconcileAll();
 			applyDragDelay();
+			if (bankController.isTutorialActive() && !bankController.getTutorial().hasSteps())
+			{
+				startTutorialContent();
+			}
 			log.debug("[bank] opened; baseline captured ({} stacks)", baseline.size());
 		}
 	}

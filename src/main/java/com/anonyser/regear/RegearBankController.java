@@ -74,6 +74,7 @@ class RegearBankController
 	private boolean overlapDetected;
 	private boolean managingBank;
 	private boolean tutorialActive;
+	private final RegearTutorial tutorial = new RegearTutorial();
 	// Widgets we repurposed to show a duplicate item, mapped to their original item id so we can
 	// restore them (and rebuild the item map cleanly) on the next apply.
 	private final Map<Widget, Integer> synthOriginal = new HashMap<>();
@@ -137,6 +138,11 @@ class RegearBankController
 	void setTutorialActive(boolean active)
 	{
 		this.tutorialActive = active;
+	}
+
+	RegearTutorial getTutorial()
+	{
+		return tutorial;
 	}
 
 	static int slotToX(int slot)

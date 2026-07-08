@@ -139,6 +139,7 @@ class RegearPanel extends PluginPanel
 		flashTimer = new javax.swing.Timer(450, e ->
 		{
 			flashOn = !flashOn;
+			updateTutorialButton();
 			if (!tutorialButton.isVisible())
 			{
 				return;
