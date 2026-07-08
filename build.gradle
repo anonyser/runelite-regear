@@ -1,0 +1,45 @@
+plugins {
+    id 'java'
+}
+
+repositories {
+    mavenLocal()
+    maven {
+        url = 'https://repo.runelite.net'
+    }
+    mavenCentral()
+}
+
+def runeLiteVersion = 'latest.release'
+
+dependencies {
+    compileOnly group: 'net.runelite', name: 'client', version: runeLiteVersion
+
+    testImplementation group: 'net.runelite', name: 'client', version: runeLiteVersion
+    testImplementation group: 'junit', name: 'junit', version: '4.13.2'
+    testImplementation 'org.slf4j:slf4j-simple:1.7.36'
+}
+
+group = 'com.anonyser.regear'
+version = '1.0.0'
+
+tasks.withType(JavaCompile) {
+    options.encoding = 'UTF-8'
+}
+
+java {
+    sourceCompatibility = JavaVersion.VERSION_11
+    targetCompatibility = JavaVersion.VERSION_11
+}
+
+// Dev-only: launch a RuneLite client with this plugin loaded. Not part of the standard Hub build
+// (build=standard replaces build.gradle/settings.gradle at build time, so the Hub never sees this).
+tasks.register('runClient', JavaExec) {
+    group = 'application'
+    description = 'Launch RuneLite with the Regear plugin loaded (dev testing)'
+    classpath = sourceSets.test.runtimeClasspath
+    mainClass = 'com.anonyser.regear.RegearPluginTest'
+    enableAssertions = true
+    maxHeapSize = '8g'
+    minHeapSize = '1g'
+}
