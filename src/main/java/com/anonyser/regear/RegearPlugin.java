@@ -55,8 +55,8 @@ import org.slf4j.LoggerFactory;
  */
 @PluginDescriptor(
 	name = "Regear",
-	description = "Guided banking: show a rotating set of your gear/potion/food items in fixed bank slots",
-	tags = {"bank", "regear", "gear", "switch", "setup", "inventory", "pvp", "filter", "layout"}
+	description = "Show the gear or inventory you set in fixed bank slots to withdraw in order (display only)",
+	tags = {"bank", "regear", "gear", "switch", "setup", "inventory", "pvp", "filter", "withdraw"}
 )
 public class RegearPlugin extends Plugin
 {
@@ -152,13 +152,11 @@ public class RegearPlugin extends Plugin
 		overlayManager.add(idOverlay);
 		overlayManager.add(bankOverlay);
 		mouseManager.registerMouseListener(tutorialMouse);
-		log.debug("[life] Regear started with {} list(s)", data.lists.size());
 	}
 
 	@Override
 	protected void shutDown()
 	{
-		log.debug("[life] Regear stopped");
 		client.setInventoryDragDelay(DEFAULT_DRAG_DELAY);
 		bankController.setTutorialActive(false);
 		mouseManager.unregisterMouseListener(tutorialMouse);
@@ -429,7 +427,6 @@ public class RegearPlugin extends Plugin
 			{
 				startTutorialContent();
 			}
-			log.debug("[bank] opened; baseline captured ({} stacks)", baseline.size());
 		}
 	}
 
@@ -444,7 +441,6 @@ public class RegearPlugin extends Plugin
 			{
 				commit();
 			}
-			log.debug("[bank] closed");
 		}
 	}
 

@@ -1,38 +1,40 @@
 # Regear
 
-A guided banking tool for RuneLite. Build ordered withdrawal lists in the side panel; when the bank
-is open, Regear filters it to a small **rotating window** of each enabled list and moves those items
-into fixed, predictable bank slots, so you can click the same few positions in rhythm while the
-plugin advances each slot to the next correct item.
+A banking helper for RuneLite. You build the gear or inventory you want in a side panel, pick a
+layout style, and Regear shows those items in fixed bank slots so you can withdraw them in the order
+you set. It works like other banking plugins: it filters the bank and puts the next items where you
+expect them. It does not click, withdraw, or move anything for you.
 
-**Display-only.** Regear never clicks, withdraws, deposits or moves items for you. It only filters,
-positions, highlights and tracks. You perform every click.
+## What it does
 
-## How it works
+- Build ordered lists in the side panel: a full 28-slot regear, a repot, a spec switch, or anything
+  you withdraw the same way each time.
+- When the bank is open, each enabled list shows a small rotating window of its items in set
+  positions, so you click the same few slots in a rhythm.
+- Show 1 to 6 slots at once, in a single spot, a vertical line, a Z block, or your own custom layout.
+- Set a withdraw amount per item. A rune set to 30 stays put until you have pulled all 30.
+- Add "or" alternatives per item, like a fresh and a used piece of gear, or several potion doses. It
+  shows whichever one you own, and you can order the fallbacks.
+- "Skip if worn" hides an item while you are already wearing it.
+- An item id overlay and a right-click "Add to Regear" for building lists.
+- A short tutorial that walks you through the patterns on your own bank.
 
-- **Side panel:** create/rename/delete lists; per list set enabled, visible item count (1-4),
-  pattern (Single / Vertical / Z / Custom), bank anchor and completion behaviour. Edit the ordered
-  items in a grid (drag to reorder, right-click to duplicate / remove / edit id / set note). Add
-  items by id, or by right-clicking any bank/inventory/equipment item and choosing **Add to Regear**.
-- **Bank engine:** on the bank's finish-building script, Regear hides every bank item and repositions
-  just the active target of each enabled list into its configured slot. This is the same widget
-  technique RuneLite's own Bank Tag Layouts use, reimplemented here so Regear is fully self-contained
-  and needs no other plugin enabled.
-- **Rotation:** the list is split into `visibleCount` lanes; lane *k* walks the list as
-  `k, k+L, k+2L, ...` (L = lane count). A lane advances only when the plugin sees that item actually
-  leave the bank (inventory count rises), so hovers and misclicks never advance it.
-- **Overlays:** an optional item-id overlay (bank/inventory/equipment) for building lists, plus bank
-  guidance (active-slot highlight, lane numbers, next-item preview, missing markers).
+The next items are worked out from what is actually in your inventory, so a misclick or a double
+withdraw sorts itself out.
 
-## Dev
+## Screenshots
 
-```bash
-./gradlew runClient          # launch a RuneLite client with Regear loaded (8g heap, assertions on)
-./gradlew build              # compile + unit tests
-```
+![Side panel](screenshots/panel.png)
 
-The dev client (`runClient`) streams Regear events (`[life]`, `[bank]`, `[rotate]`) to
-`~/.runelite/regear-dev.log` automatically; the desktop launcher opens a window that tails it live.
-These are `log.debug` lines, so they never appear in a normal (INFO-level) Hub client.
+![Bank layout](screenshots/bank.png)
 
-Display-only; no gameplay automation.
+![Tutorial](screenshots/tutorial.png)
+
+## Adding items
+
+Right-click a bank, inventory, or worn item and choose "Add to Regear", or type an item id in the
+panel. If you want to look up ids, the Item ID and Lookup plugin does that.
+
+## Note
+
+Display only. Regear never automates gameplay. You perform every click.

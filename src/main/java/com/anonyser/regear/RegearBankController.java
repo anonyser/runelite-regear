@@ -14,8 +14,6 @@ import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarClientID;
 import net.runelite.api.widgets.ItemQuantityMode;
 import net.runelite.api.widgets.Widget;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
 /**
  * The bank layout engine. When the bank finishes (re)building its item icons, this hides every item
@@ -28,8 +26,6 @@ import org.slf4j.LoggerFactory;
 @Singleton
 class RegearBankController
 {
-	private static final Logger log = LoggerFactory.getLogger(RegearBankController.class);
-
 	// Bank grid geometry, matching RuneLite core (BankTagsPlugin): 8 columns of 36x32 icons.
 	static final int COLUMNS = 8;
 	static final int ITEM_WIDTH = 36;
@@ -391,16 +387,6 @@ class RegearBankController
 			container.setScrollHeight(neededHeight);
 		}
 		container.revalidate();
-
-		log.debug("[bank] applied {} placement(s) (overlap={}, missing={}, dup={}) from {} widget(s)",
-			placements.size(), overlapDetected, missingLabels.size(), synthOriginal.size(), itemWidgets.size());
-		for (Placement p : placements)
-		{
-			final String state = p.missing ? "MISSING" : p.duplicate ? "DUP(no-spare)"
-				: p.synthetic ? "dup" : "placed";
-			log.debug("[bank]   '{}' lane {} -> slot {} id {} [{}]",
-				p.listName, p.lane + 1, p.slot, p.item.id, state);
-		}
 	}
 
 	private static String missingLabel(Placement p)
