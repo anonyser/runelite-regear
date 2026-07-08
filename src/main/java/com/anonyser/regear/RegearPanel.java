@@ -163,9 +163,9 @@ class RegearPanel extends PluginPanel
 		final JPanel row = new JPanel(new GridLayout(1, 3, 3, 0));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
-		row.add(button("New", e -> newList()));
-		row.add(button("Rename", e -> renameList()));
-		row.add(button("Delete", e -> deleteList()));
+		row.add(compact(button("New", e -> newList())));
+		row.add(compact(button("Rename", e -> renameList())));
+		row.add(compact(button("Delete", e -> deleteList())));
 		return row;
 	}
 
@@ -253,6 +253,14 @@ class RegearPanel extends PluginPanel
 		final JButton b = new JButton(text);
 		b.setFocusPainted(false);
 		b.addActionListener(action);
+		return b;
+	}
+
+	/** Tighten a button's padding and font so short labels fit in a narrow, shared row. */
+	private static JButton compact(JButton b)
+	{
+		b.setMargin(new Insets(2, 2, 2, 2));
+		b.setFont(FontManager.getRunescapeFont());
 		return b;
 	}
 
@@ -527,14 +535,26 @@ class RegearPanel extends PluginPanel
 		clientThread.invoke(() ->
 		{
 			final AsyncBufferedImage img = itemManager.getImage(id, Math.max(1, item.quantity), item.quantity > 1);
-			final ItemComposition comp = itemManager.getItemComposition(id);
-			final String name = comp != null ? comp.getName() : null;
+			final String name = itemName(id);
+			final List<String> altLines = new ArrayList<>();
+			for (int a : item.alts)
+			{
+				altLines.add(itemName(a) + " (id " + a + ")");
+			}
 			SwingUtilities.invokeLater(() ->
 			{
 				img.addTo(icon);
-				slot.setToolTipText((name != null ? name : "Item") + " (id " + id + ")"
-					+ (item.note != null && !item.note.isEmpty() ? " - " + item.note : "")
-					+ (hasAlts ? " | or: " + item.alts : ""));
+				final StringBuilder tip = new StringBuilder("<html>")
+					.append(name).append(" (id ").append(id).append(')');
+				if (item.note != null && !item.note.isEmpty())
+				{
+					tip.append(" - ").append(item.note);
+				}
+				for (int i = 0; i < altLines.size(); i++)
+				{
+					tip.append("<br>&nbsp;&nbsp;fallback ").append(i + 1).append(": ").append(altLines.get(i));
+				}
+				slot.setToolTipText(tip.append("</html>").toString());
 			});
 		});
 
@@ -946,6 +966,13 @@ class RegearPanel extends PluginPanel
 		l.setAlignmentX(LEFT_ALIGNMENT);
 		l.setBorder(BorderFactory.createEmptyBorder(1, 0, 1, 0));
 		return l;
+	}
+
+	/** Item name for a tooltip. Must be called on the client thread (getItemComposition asserts it). */
+	private String itemName(int id)
+	{
+		final ItemComposition c = itemManager.getItemComposition(id);
+		return c != null && c.getName() != null ? c.getName() : "Item";
 	}
 
 	// --- pattern preview ---------------------------------------------------------------------------
