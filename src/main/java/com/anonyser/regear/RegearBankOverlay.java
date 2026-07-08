@@ -93,8 +93,24 @@ class RegearBankOverlay extends Overlay
 			{
 				drawNextPreview(graphics, b, p.next.id);
 			}
+			if (p.required > 1)
+			{
+				drawProgress(graphics, b, p.withdrawn, p.required);
+			}
 		}
 		return null;
+	}
+
+	private void drawProgress(Graphics2D g, Rectangle b, int withdrawn, int required)
+	{
+		final String text = withdrawn + "/" + required;
+		g.setFont(FontManager.getRunescapeSmallFont());
+		final int x = b.x + 1;
+		final int y = b.y + b.height - 1;
+		g.setColor(Color.BLACK);
+		g.drawString(text, x + 1, y + 1);
+		g.setColor(new Color(120, 200, 255));
+		g.drawString(text, x, y);
 	}
 
 	private static Rectangle slotRect(Point containerLoc, int slot)

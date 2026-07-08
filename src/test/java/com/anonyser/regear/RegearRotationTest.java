@@ -162,6 +162,23 @@ public class RegearRotationTest
 	}
 
 	@Test
+	public void withdrawnAccumulatesAndResetsOnAdvance()
+	{
+		final RegearList l = list(PatternPreset.SINGLE, 1, 3);
+		l.items.get(0).quantity = 30; // this item requires 30 withdrawn before advancing
+		assertEquals(0, l.getWithdrawn(0));
+		l.addWithdrawn(0, 10);
+		l.addWithdrawn(0, 10);
+		assertEquals(20, l.getWithdrawn(0));
+		assertEquals(1, activeId(l, 0)); // still on item 1 at 20/30
+		l.addWithdrawn(0, 10);
+		assertEquals(30, l.getWithdrawn(0));
+		l.advanceLane(0, CompletionBehavior.STOP);
+		assertEquals(2, activeId(l, 0));
+		assertEquals(0, l.getWithdrawn(0)); // resets for the next item
+	}
+
+	@Test
 	public void footprintSlotsCoverEveryLane()
 	{
 		final RegearList l = list(PatternPreset.VERTICAL, 3, 6);

@@ -61,6 +61,7 @@ public class RegearPlugin extends Plugin
 	private static final String ADD_OPTION = "Add to Regear";
 	private static final String DEFAULT_LIST_NAME = "Main Regear";
 	private static final int BANK_GROUP = InterfaceID.Bankmain.ITEMS >>> 16;
+	private static final int DEFAULT_DRAG_DELAY = 5;
 
 	@Inject
 	private Client client;
@@ -134,6 +135,7 @@ public class RegearPlugin extends Plugin
 	protected void shutDown()
 	{
 		log.debug("[life] Regear stopped");
+		client.setInventoryDragDelay(DEFAULT_DRAG_DELAY);
 		overlayManager.remove(idOverlay);
 		overlayManager.remove(bankOverlay);
 		clientToolbar.removeNavigation(navButton);
@@ -259,8 +261,10 @@ public class RegearPlugin extends Plugin
 				if (list != null)
 				{
 					list.clearHolds();
+					list.clearWithdrawn();
 				}
 			}
+			applyDragDelay();
 			log.debug("[bank] opened; inventory baseline captured ({} stacks)", invCounts.size());
 		}
 	}
@@ -271,6 +275,7 @@ public class RegearPlugin extends Plugin
 		if (event.getGroupId() == BANK_GROUP)
 		{
 			bankOpen = false;
+			applyDragDelay();
 			if (resetLists(CompletionBehavior.RESET_ON_BANK_CLOSE))
 			{
 				commit();
@@ -318,10 +323,21 @@ public class RegearPlugin extends Plugin
 		{
 			clientThread.invoke(() ->
 			{
+				applyDragDelay();
 				bankController.applyLayout(tick);
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
+	}
+
+	/**
+	 * Raise the item drag delay while the bank is open so rapid withdraw clicks are not misread as
+	 * item drags (the Anti-Drag mechanism); restore the client default otherwise.
+	 */
+	private void applyDragDelay()
+	{
+		final int delay = bankOpen && config.bankDragDelay() > 0 ? config.bankDragDelay() : DEFAULT_DRAG_DELAY;
+		client.setInventoryDragDelay(delay);
 	}
 
 	@Subscribe
@@ -402,17 +418,17 @@ public class RegearPlugin extends Plugin
 	 */
 	private void advanceForWithdrawals(Map<Integer, Integer> before, Map<Integer, Integer> after)
 	{
-		boolean advanced = false;
+		boolean changed = false;
 		for (Map.Entry<Integer, Integer> e : after.entrySet())
 		{
 			final int id = e.getKey();
 			final int gained = e.getValue() - before.getOrDefault(id, 0);
-			if (gained > 0 && advanceLaneForItem(id))
+			if (gained > 0 && creditWithdrawal(id, gained))
 			{
-				advanced = true;
+				changed = true;
 			}
 		}
-		if (advanced)
+		if (changed)
 		{
 			save();
 			bankController.applyLayout(tick);
@@ -420,7 +436,13 @@ public class RegearPlugin extends Plugin
 		}
 	}
 
-	private boolean advanceLaneForItem(int id)
+	/**
+	 * Credit a withdrawal of {@code gained} of item {@code id} to the leftmost active lane pointing at
+	 * it. The lane only advances once the amount withdrawn reaches the item's required quantity, so a
+	 * multi-withdraw item (e.g. 30 runes pulled 10 at a time) stays put until it is fully withdrawn.
+	 * Returns true if a lane matched (advanced or made partial progress) so the display refreshes.
+	 */
+	private boolean creditWithdrawal(int id, int gained)
 	{
 		for (RegearList list : data.lists)
 		{
@@ -432,7 +454,14 @@ public class RegearPlugin extends Plugin
 			for (int lane = 0; lane < lanes; lane++)
 			{
 				final RegearItem active = list.activeItem(lane);
-				if (active != null && active.id == id)
+				if (active == null || active.id != id)
+				{
+					continue;
+				}
+				final int required = Math.max(1, active.quantity);
+				list.addWithdrawn(lane, gained);
+				final int total = list.getWithdrawn(lane);
+				if (total >= required)
 				{
 					list.advanceLane(lane, list.effectiveCompletion(config.defaultCompletion()));
 					final int hold = config.holdTicks();
@@ -440,10 +469,15 @@ public class RegearPlugin extends Plugin
 					{
 						list.holdLane(lane, tick + hold);
 					}
-					log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {} (holdTicks={})",
-						list.name, lane + 1, id, hold);
-					return true;
+					log.debug("[rotate] '{}' lane {} advanced (withdrew {}/{} of id {})",
+						list.name, lane + 1, total, required, id);
 				}
+				else
+				{
+					log.debug("[rotate] '{}' lane {} progress {}/{} of id {}",
+						list.name, lane + 1, total, required, id);
+				}
+				return true;
 			}
 		}
 		return false;

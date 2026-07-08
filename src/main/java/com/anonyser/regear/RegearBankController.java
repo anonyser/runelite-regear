@@ -51,6 +51,8 @@ class RegearBankController
 		boolean missing;
 		boolean duplicate;   // a second copy that could not get a spare widget to show it
 		boolean synthetic;   // shown on a spare widget repurposed to display a repeated item
+		int withdrawn;       // amount of this item withdrawn so far toward its required quantity
+		int required;        // quantity to withdraw before the lane advances (>=1)
 
 		Placement(String listName, int lane, int slot, RegearItem item)
 		{
@@ -205,6 +207,8 @@ class RegearBankController
 				}
 				final Placement p = new Placement(list.name, lane, slot, item);
 				p.next = list.nextItem(lane);
+				p.withdrawn = list.getWithdrawn(lane);
+				p.required = Math.max(1, item.quantity);
 				if (bySlot.containsKey(slot))
 				{
 					overlapDetected = true;

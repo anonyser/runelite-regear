@@ -37,6 +37,12 @@ class RegearList
 	 * slot pulls only one item per hold window. Set on advance; expires by tick.
 	 */
 	transient int[] laneHoldUntilTick;
+	/**
+	 * Runtime-only (not persisted): how much of the current active item each lane has seen withdrawn
+	 * so far. A lane only advances once this reaches the item's required quantity, so an item stays
+	 * put while you withdraw it in chunks (e.g. Withdraw-10 three times for 30 runes).
+	 */
+	transient int[] laneWithdrawn;
 
 	// Required by Gson for deserialization.
 	RegearList()
@@ -121,6 +127,7 @@ class RegearList
 			laneCursors[k] = k;
 		}
 		laneHoldUntilTick = null;
+		laneWithdrawn = null;
 	}
 
 	/** Hold a lane empty until the given game tick (anti-spam limiter). */
@@ -163,6 +170,30 @@ class RegearList
 	void clearHolds()
 	{
 		laneHoldUntilTick = null;
+	}
+
+	/** Add to the amount withdrawn of a lane's current item. */
+	void addWithdrawn(int lane, int amount)
+	{
+		final int lanes = laneCount();
+		if (laneWithdrawn == null || laneWithdrawn.length != lanes)
+		{
+			laneWithdrawn = new int[lanes];
+		}
+		if (lane >= 0 && lane < laneWithdrawn.length)
+		{
+			laneWithdrawn[lane] += amount;
+		}
+	}
+
+	int getWithdrawn(int lane)
+	{
+		return laneWithdrawn != null && lane >= 0 && lane < laneWithdrawn.length ? laneWithdrawn[lane] : 0;
+	}
+
+	void clearWithdrawn()
+	{
+		laneWithdrawn = null;
 	}
 
 	/** Absolute bank slot for a lane = anchor + offset, or -1 if it would fall outside the grid. */
@@ -243,6 +274,10 @@ class RegearList
 			}
 		}
 		laneCursors[lane] = next;
+		if (laneWithdrawn != null && lane < laneWithdrawn.length)
+		{
+			laneWithdrawn[lane] = 0;
+		}
 	}
 
 	/** True once every lane has run past the end of the list. */

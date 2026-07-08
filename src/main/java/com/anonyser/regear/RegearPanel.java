@@ -570,6 +570,19 @@ class RegearPanel extends PluginPanel
 				refreshForSelection();
 			}
 		}));
+		menu.add(menuItem("Set amount", () ->
+		{
+			final String in = JOptionPane.showInputDialog(this,
+				"Withdraw amount (the item stays and the sequence waits until you pull this many):",
+				list.items.get(index).quantity);
+			final Integer v = parseId(in);
+			if (v != null)
+			{
+				list.items.get(index).quantity = Math.max(0, v);
+				plugin.commit();
+				refreshForSelection();
+			}
+		}));
 		menu.add(menuItem("Set note", () ->
 		{
 			final String in = JOptionPane.showInputDialog(this, "Note / label:", list.items.get(index).note);

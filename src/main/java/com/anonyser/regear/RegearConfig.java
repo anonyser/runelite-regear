@@ -194,6 +194,21 @@ public interface RegearConfig extends Config
 		return false;
 	}
 
+	@Range(min = 0, max = 250)
+	@ConfigItem(
+		keyName = "bankDragDelay",
+		name = "Prevent bank item drag",
+		description = "While the bank is open, raise the item drag delay (in client ticks, ~20ms each)<br>"
+			+ "so fast withdraw clicks are not misread as drags. 0 leaves the client default (5).<br>"
+			+ "This is the same setting the Anti-Drag plugin uses.",
+		position = 3,
+		section = behaviourSection
+	)
+	default int bankDragDelay()
+	{
+		return 50;
+	}
+
 	@ConfigItem(
 		keyName = "openPanel",
 		name = "Open Regear panel",
