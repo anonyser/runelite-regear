@@ -122,6 +122,11 @@ class RegearPanel extends PluginPanel
 		pickHint.setForeground(ColorScheme.BRAND_ORANGE);
 		pickHint.setAlignmentX(LEFT_ALIGNMENT);
 		pickHint.setVisible(false);
+		// Keep the whole column left-aligned: the item grid, notes and warnings default to CENTER,
+		// which in a vertical BoxLayout pushes the left-aligned control rows to the right (that gap).
+		itemGrid.setAlignmentX(LEFT_ALIGNMENT);
+		completionInfo.setAlignmentX(LEFT_ALIGNMENT);
+		warningsPanel.setAlignmentX(LEFT_ALIGNMENT);
 
 		add(content, BorderLayout.NORTH);
 		wireListeners();
