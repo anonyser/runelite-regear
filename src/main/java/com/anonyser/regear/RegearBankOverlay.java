@@ -219,13 +219,17 @@ class RegearBankOverlay extends Overlay
 
 	private void drawNotes(Graphics2D g, Rectangle cb)
 	{
-		final int x = cb.x + 8;
-		int y = cb.y + 22;
+		// Solid dark panel so the text is readable over the busy bank behind it.
+		g.setColor(new Color(0, 0, 0, 238));
+		g.fillRoundRect(cb.x + 2, cb.y + 2, cb.width - 4, cb.height - 4, 10, 10);
+		g.setStroke(new BasicStroke(2f));
+		g.setColor(new Color(0, 200, 60));
+		g.drawRoundRect(cb.x + 2, cb.y + 2, cb.width - 4, cb.height - 4, 10, 10);
+
 		g.setFont(FontManager.getRunescapeBoldFont());
-		g.setColor(new Color(0, 255, 90));
-		g.drawString("You're ready! A few tips:", x, y);
-		g.setFont(FontManager.getRunescapeFont());
-		g.setColor(Color.WHITE);
+		final int x = cb.x + 12;
+		int y = cb.y + 30;
+		shadow(g, "You're ready! A few tips:", x, y, new Color(0, 255, 90));
 		final String[] notes = {
 			"- Right-click a bank / inventory item -> Add to Regear.",
 			"- Add by item id, or get the Item ID and Lookup plugin.",
@@ -234,14 +238,22 @@ class RegearBankOverlay extends Overlay
 		};
 		for (String note : notes)
 		{
-			y += 18;
-			g.drawString(note, x, y);
+			y += 24;
+			shadow(g, note, x, y, Color.WHITE);
 		}
-		y += 26;
+		y += 32;
 		final boolean on = System.currentTimeMillis() / 400 % 2 == 0;
-		g.setFont(FontManager.getRunescapeBoldFont());
-		g.setColor(on ? new Color(255, 80, 80) : new Color(255, 180, 180));
-		g.drawString("Click anywhere to finish the tutorial", x, y);
+		shadow(g, "Click anywhere to finish the tutorial", x, y,
+			on ? new Color(255, 95, 95) : new Color(255, 190, 190));
+	}
+
+	/** Draw text with a black drop-shadow for contrast over any background. */
+	private static void shadow(Graphics2D g, String text, int x, int y, Color color)
+	{
+		g.setColor(Color.BLACK);
+		g.drawString(text, x + 1, y + 1);
+		g.setColor(color);
+		g.drawString(text, x, y);
 	}
 
 	private void drawProgress(Graphics2D g, Rectangle b, int withdrawn, int required)
