@@ -39,7 +39,7 @@ enum PatternPreset
 	 */
 	List<PatternOffset> offsetsFor(int visibleCount)
 	{
-		final int n = Math.max(1, Math.min(4, visibleCount));
+		final int n = Math.max(1, Math.min(6, visibleCount));
 		final List<PatternOffset> out = new ArrayList<>();
 		switch (this)
 		{

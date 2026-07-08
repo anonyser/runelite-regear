@@ -55,7 +55,7 @@ class RegearPanel extends PluginPanel
 
 	private final JComboBox<String> listSelector = new JComboBox<>();
 	private final JCheckBox enabledToggle = new JCheckBox("Enabled");
-	private final JComboBox<Integer> visibleCount = new JComboBox<>(new Integer[]{1, 2, 3, 4});
+	private final JComboBox<Integer> visibleCount = new JComboBox<>(new Integer[]{1, 2, 3, 4, 5, 6});
 	private final JComboBox<PatternPreset> patternSelector = new JComboBox<>(PatternPreset.values());
 	private final JTextField customField = new JTextField();
 	private final JComboBox<String> completionSelector = new JComboBox<>();
@@ -916,7 +916,7 @@ class RegearPanel extends PluginPanel
 					out.add(new PatternOffset(x, y));
 				}
 			}
-			if (out.size() >= 4)
+			if (out.size() >= 6)
 			{
 				break;
 			}

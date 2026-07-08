@@ -53,11 +53,11 @@ public interface RegearConfig extends Config
 		return true;
 	}
 
-	@Range(min = 1, max = 4)
+	@Range(min = 1, max = 6)
 	@ConfigItem(
 		keyName = "defaultVisibleCount",
 		name = "Default visible items",
-		description = "How many lanes a newly created list starts with (1-4).",
+		description = "How many lanes a newly created list starts with (1-6).",
 		position = 1,
 		section = bankSection
 	)

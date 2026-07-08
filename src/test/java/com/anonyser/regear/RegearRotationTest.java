@@ -96,6 +96,17 @@ public class RegearRotationTest
 	}
 
 	@Test
+	public void sixLaneVertical()
+	{
+		final RegearList l = list(PatternPreset.VERTICAL, 6, 18);
+		assertEquals(6, l.laneCount());
+		assertEquals(1, activeId(l, 0));
+		assertEquals(6, activeId(l, 5));
+		l.advanceLane(5, CompletionBehavior.STOP);
+		assertEquals(12, activeId(l, 5)); // lane 6 walks 6, 12, 18...
+	}
+
+	@Test
 	public void zPatternOffsets()
 	{
 		final RegearList l = list(PatternPreset.Z, 4, 4);

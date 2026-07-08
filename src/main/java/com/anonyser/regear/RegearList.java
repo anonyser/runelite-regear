@@ -87,7 +87,7 @@ class RegearList
 		{
 			pattern = PatternPreset.VERTICAL;
 		}
-		visibleCount = Math.max(1, Math.min(4, visibleCount));
+		visibleCount = Math.max(1, Math.min(6, visibleCount));
 		ensureLanes();
 	}
 
@@ -103,7 +103,7 @@ class RegearList
 				one.add(new PatternOffset(0, 0));
 				return one;
 			}
-			return customOffsets.size() > 4 ? customOffsets.subList(0, 4) : customOffsets;
+			return customOffsets.size() > 6 ? customOffsets.subList(0, 6) : customOffsets;
 		}
 		return pattern.offsetsFor(visibleCount);
 	}
