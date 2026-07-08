@@ -31,6 +31,11 @@ class RegearList
 	CompletionBehavior completion;
 	/** Persisted progress: {@code laneCursors[k]} is the item index currently shown in lane k. */
 	int[] laneCursors;
+	/**
+	 * Runtime-only (not persisted): a lane briefly held empty right after a withdrawal, so mashing a
+	 * slot pulls only one item per lane per tick. Set on advance, cleared on the next game tick.
+	 */
+	transient boolean[] laneHeld;
 
 	// Required by Gson for deserialization.
 	RegearList()
@@ -114,6 +119,47 @@ class RegearList
 		{
 			laneCursors[k] = k;
 		}
+		laneHeld = null;
+	}
+
+	/** Hold a lane empty until the next game tick (anti-spam limiter). */
+	void holdLane(int lane)
+	{
+		final int lanes = laneCount();
+		if (laneHeld == null || laneHeld.length != lanes)
+		{
+			laneHeld = new boolean[lanes];
+		}
+		if (lane >= 0 && lane < laneHeld.length)
+		{
+			laneHeld[lane] = true;
+		}
+	}
+
+	boolean isLaneHeld(int lane)
+	{
+		return laneHeld != null && lane >= 0 && lane < laneHeld.length && laneHeld[lane];
+	}
+
+	boolean anyHeld()
+	{
+		if (laneHeld == null)
+		{
+			return false;
+		}
+		for (boolean held : laneHeld)
+		{
+			if (held)
+			{
+				return true;
+			}
+		}
+		return false;
+	}
+
+	void clearHolds()
+	{
+		laneHeld = null;
 	}
 
 	/** Absolute bank slot for a lane = anchor + offset, or -1 if it would fall outside the grid. */

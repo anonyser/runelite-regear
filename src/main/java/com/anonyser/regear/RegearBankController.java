@@ -147,8 +147,9 @@ class RegearBankController
 		}
 
 		// Resolve the active target of every enabled list into a slot, tracking cross-list overlap.
+		// A held lane (just withdrawn) still keeps the bank filtered but leaves its slot empty this tick.
 		final Map<Integer, Placement> bySlot = new LinkedHashMap<>();
-		boolean anyTarget = false;
+		boolean managing = false;
 		for (RegearList list : data.lists)
 		{
 			if (list == null || !list.enabled)
@@ -165,7 +166,13 @@ class RegearBankController
 				{
 					continue;
 				}
-				anyTarget = true;
+				// This list manages the bank (everything else stays hidden) even while this lane is
+				// momentarily held empty right after a withdrawal.
+				managing = true;
+				if (list.isLaneHeld(lane))
+				{
+					continue;
+				}
 				final Placement p = new Placement(list.name, lane, slot, item);
 				p.next = list.nextItem(lane);
 				if (bySlot.containsKey(slot))
@@ -178,9 +185,9 @@ class RegearBankController
 			}
 		}
 
-		if (!anyTarget)
+		if (!managing)
 		{
-			// No enabled list has anything active: leave the bank exactly as the game built it.
+			// No enabled list has anything to manage: leave the bank exactly as the game built it.
 			return;
 		}
 

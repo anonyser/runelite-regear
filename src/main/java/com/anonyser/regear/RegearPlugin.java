@@ -19,6 +19,7 @@ import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
 import net.runelite.api.ScriptID;
+import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuEntryAdded;
 import net.runelite.api.events.ScriptPreFired;
@@ -218,12 +219,44 @@ public class RegearPlugin extends Plugin
 	}
 
 	@Subscribe
+	public void onGameTick(GameTick event)
+	{
+		// Release any lanes held empty by the anti-spam limiter, one tick after their withdrawal,
+		// then re-apply so the next item appears. This caps withdrawals at one per lane per tick.
+		if (!bankOpen || data == null)
+		{
+			return;
+		}
+		boolean released = false;
+		for (RegearList list : data.lists)
+		{
+			if (list != null && list.anyHeld())
+			{
+				list.clearHolds();
+				released = true;
+			}
+		}
+		if (released)
+		{
+			bankController.applyLayout();
+			SwingUtilities.invokeLater(this::refreshWarnings);
+		}
+	}
+
+	@Subscribe
 	public void onWidgetLoaded(WidgetLoaded event)
 	{
 		if (event.getGroupId() == BANK_GROUP)
 		{
 			bankOpen = true;
 			snapshotInventory();
+			for (RegearList list : data.lists)
+			{
+				if (list != null)
+				{
+					list.clearHolds();
+				}
+			}
 			log.debug("[bank] opened; inventory baseline captured ({} stacks)", invCounts.size());
 		}
 	}
@@ -366,8 +399,12 @@ public class RegearPlugin extends Plugin
 				if (active != null && active.id == id)
 				{
 					list.advanceLane(lane, list.effectiveCompletion(config.defaultCompletion()));
-					log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {}",
-						list.name, lane + 1, id);
+					if (config.oneWithdrawPerTick())
+					{
+						list.holdLane(lane);
+					}
+					log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {} (held={})",
+						list.name, lane + 1, id, config.oneWithdrawPerTick());
 					return true;
 				}
 			}

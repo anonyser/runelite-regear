@@ -167,11 +167,24 @@ public interface RegearConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "oneWithdrawPerTick",
+		name = "One item per tick",
+		description = "Anti-spam limiter: after you withdraw an active item, hold that slot empty<br>"
+			+ "until the next tick so mashing the same spot only pulls one item at a time, in order.",
+		position = 1,
+		section = behaviourSection
+	)
+	default boolean oneWithdrawPerTick()
+	{
+		return true;
+	}
+
+	@ConfigItem(
 		keyName = "skipMissing",
 		name = "Skip missing items",
 		description = "If the active item is not in the bank, advance the lane past it instead of<br>"
 			+ "waiting. Off means the lane holds on the missing item until it is available.",
-		position = 1,
+		position = 2,
 		section = behaviourSection
 	)
 	default boolean skipMissing()
