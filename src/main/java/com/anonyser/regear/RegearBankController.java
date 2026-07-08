@@ -1,6 +1,7 @@
 package com.anonyser.regear;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -11,6 +12,7 @@ import javax.inject.Singleton;
 import net.runelite.api.Client;
 import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.gameval.VarClientID;
+import net.runelite.api.widgets.ItemQuantityMode;
 import net.runelite.api.widgets.Widget;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -45,9 +47,10 @@ class RegearBankController
 		final int slot;      // absolute bank slot
 		final RegearItem item;
 		RegearItem next;     // what this lane advances to next, for the preview; may be null
-		Widget widget;       // the bank item widget moved here, or null if missing/duplicate
+		Widget widget;       // the bank item widget moved here, or null if missing
 		boolean missing;
-		boolean duplicate;   // a second lane wanting an item already shown elsewhere
+		boolean duplicate;   // a second copy that could not get a spare widget to show it
+		boolean synthetic;   // shown on a spare widget repurposed to display a repeated item
 
 		Placement(String listName, int lane, int slot, RegearItem item)
 		{
@@ -65,6 +68,10 @@ class RegearBankController
 	private final List<Placement> placements = new ArrayList<>();
 	private final List<String> missingLabels = new ArrayList<>();
 	private boolean overlapDetected;
+	private boolean managingBank;
+	// Widgets we repurposed to show a duplicate item, mapped to their original item id so we can
+	// restore them (and rebuild the item map cleanly) on the next apply.
+	private final Map<Widget, Integer> synthOriginal = new HashMap<>();
 
 	@Inject
 	RegearBankController(Client client, RegearConfig config)
@@ -93,6 +100,12 @@ class RegearBankController
 		return overlapDetected;
 	}
 
+	/** True while Regear is actively filtering/positioning the bank (so clicks should be remapped). */
+	boolean isManaging()
+	{
+		return managingBank;
+	}
+
 	static int slotToX(int slot)
 	{
 		return slot % COLUMNS * (ITEM_WIDTH + X_PADDING) + START_X;
@@ -116,6 +129,7 @@ class RegearBankController
 		placements.clear();
 		missingLabels.clear();
 		overlapDetected = false;
+		managingBank = false;
 
 		if (data == null || !config.applyInBank())
 		{
@@ -131,6 +145,20 @@ class RegearBankController
 		if (children == null || children.length == 0)
 		{
 			return;
+		}
+
+		// Restore any widgets we repurposed as duplicate copies last time, so the item map below is
+		// built from the bank's real contents (and their original items return when no longer needed).
+		if (!synthOriginal.isEmpty())
+		{
+			for (Map.Entry<Widget, Integer> e : synthOriginal.entrySet())
+			{
+				if (e.getKey() != null)
+				{
+					e.getKey().setItemId(e.getValue());
+				}
+			}
+			synthOriginal.clear();
 		}
 
 		// Which item id currently sits in each usable bank widget (first widget wins per id).
@@ -191,38 +219,73 @@ class RegearBankController
 			// No enabled list has anything to manage: leave the bank exactly as the game built it.
 			return;
 		}
+		managingBank = true;
 
-		// Resolve each target to a bank widget up front, so the hide pass can skip targets -- never
-		// hide-then-show one, which would flicker it.
+		// Give the first lane wanting an item that item's own widget; a later lane wanting the SAME
+		// item is deferred so we can repurpose a spare widget to show a second copy of it.
 		final Set<Widget> used = new HashSet<>();
+		final List<Placement> needDuplicate = new ArrayList<>();
 		int maxRow = 0;
 		for (Placement p : bySlot.values())
 		{
+			maxRow = Math.max(maxRow, p.slot / COLUMNS);
 			final Widget w = byItemId.get(p.item.id);
 			if (w == null)
 			{
 				p.missing = true;
 				missingLabels.add(missingLabel(p));
-				maxRow = Math.max(maxRow, p.slot / COLUMNS);
 				placements.add(p);
 				continue;
 			}
 			if (used.contains(w))
 			{
-				// The same stack cannot be shown in two slots; the extra lane is a duplicate.
-				p.duplicate = true;
+				needDuplicate.add(p);
 				placements.add(p);
 				continue;
 			}
 			used.add(w);
 			p.widget = w;
-			maxRow = Math.max(maxRow, p.slot / COLUMNS);
 			placements.add(p);
+		}
+
+		boolean changed = false;
+
+		// Repurpose a spare (non-target) bank widget to display each duplicate copy, so the same item
+		// can appear in more than one slot. Clicks on it are routed to the item's real bank slot by
+		// the plugin's menu handler (bank.find), so the withdraw still works.
+		if (!needDuplicate.isEmpty())
+		{
+			final List<Widget> spares = new ArrayList<>();
+			for (Widget w : itemWidgets)
+			{
+				if (!used.contains(w))
+				{
+					spares.add(w);
+				}
+			}
+			int si = 0;
+			for (Placement p : needDuplicate)
+			{
+				final Widget spare = si < spares.size() ? spares.get(si++) : null;
+				if (spare == null)
+				{
+					p.duplicate = true; // no spare widget available to show this copy
+					continue;
+				}
+				final Widget real = byItemId.get(p.item.id);
+				synthOriginal.put(spare, spare.getItemId());
+				spare.setItemId(p.item.id);
+				spare.setItemQuantity(real != null ? real.getItemQuantity() : 1);
+				spare.setItemQuantityMode(ItemQuantityMode.STACKABLE);
+				used.add(spare);
+				p.widget = spare;
+				p.synthetic = true;
+				changed = true;
+			}
 		}
 
 		// Hide non-target items and position targets, touching only widgets whose state actually
 		// changes, so redundant re-applies are no-ops (this is what stops the flicker).
-		boolean changed = false;
 		for (Widget w : itemWidgets)
 		{
 			if (!used.contains(w) && !w.isHidden())
@@ -240,7 +303,7 @@ class RegearBankController
 			}
 			final int x = slotToX(p.slot);
 			final int y = slotToY(p.slot);
-			if (w.isHidden() || w.getOriginalX() != x || w.getOriginalY() != y)
+			if (p.synthetic || w.isHidden() || w.getOriginalX() != x || w.getOriginalY() != y)
 			{
 				w.setOriginalX(x);
 				w.setOriginalY(y);
@@ -271,11 +334,12 @@ class RegearBankController
 		}
 		container.revalidate();
 
-		log.debug("[bank] applied {} placement(s) (overlap={}, missing={}) from {} widget(s)",
-			placements.size(), overlapDetected, missingLabels.size(), itemWidgets.size());
+		log.debug("[bank] applied {} placement(s) (overlap={}, missing={}, dup={}) from {} widget(s)",
+			placements.size(), overlapDetected, missingLabels.size(), synthOriginal.size(), itemWidgets.size());
 		for (Placement p : placements)
 		{
-			final String state = p.missing ? "MISSING" : p.duplicate ? "DUP" : "placed";
+			final String state = p.missing ? "MISSING" : p.duplicate ? "DUP(no-spare)"
+				: p.synthetic ? "dup" : "placed";
 			log.debug("[bank]   '{}' lane {} -> slot {} id {} [{}]",
 				p.listName, p.lane + 1, p.slot, p.item.id, state);
 		}

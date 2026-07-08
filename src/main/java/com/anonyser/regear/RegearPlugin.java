@@ -18,14 +18,17 @@ import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
+import net.runelite.api.MenuEntry;
 import net.runelite.api.ScriptID;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuEntryAdded;
+import net.runelite.api.events.MenuOptionClicked;
 import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.callback.ClientThread;
 import net.runelite.client.config.ConfigManager;
 import net.runelite.client.eventbus.Subscribe;
@@ -339,6 +342,38 @@ public class RegearPlugin extends Plugin
 			.setTarget(event.getTarget())
 			.setType(MenuAction.RUNELITE)
 			.onClick(e -> SwingUtilities.invokeLater(() -> panel.addItemToSelected(id)));
+	}
+
+	@Subscribe
+	public void onMenuOptionClicked(MenuOptionClicked event)
+	{
+		// While Regear is filtering the bank, a shown item may sit on a widget we repurposed to
+		// display a duplicate. Route the click to that item's real bank slot so the withdraw works,
+		// exactly as Bank Tag Layouts does. A no-op for an item already on its own widget.
+		if (!bankController.isManaging())
+		{
+			return;
+		}
+		final MenuEntry menu = event.getMenuEntry();
+		if (menu.getParam1() != InterfaceID.Bankmain.ITEMS)
+		{
+			return;
+		}
+		final Widget w = menu.getWidget();
+		if (w == null || w.getItemId() <= -1)
+		{
+			return;
+		}
+		final ItemContainer bank = client.getItemContainer(InventoryID.BANK);
+		if (bank == null)
+		{
+			return;
+		}
+		final int idx = bank.find(w.getItemId());
+		if (idx > -1 && menu.getParam0() != idx)
+		{
+			menu.setParam0(idx);
+		}
 	}
 
 	// --- Rotation / detection ----------------------------------------------------------------------
