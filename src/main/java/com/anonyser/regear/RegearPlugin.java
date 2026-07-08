@@ -7,9 +7,7 @@ import java.awt.Color;
 import java.awt.Graphics2D;
 import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
-import java.util.ArrayDeque;
 import java.util.ArrayList;
-import java.util.Deque;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -104,26 +102,11 @@ public class RegearPlugin extends Plugin
 
 	private boolean bankOpen;
 	private int tick;
-	private final Map<Integer, Integer> invCounts = new HashMap<>();
-	// Withdraw clicks awaiting their inventory change, so each withdrawal advances the exact lane whose
-	// slot was clicked (keeps several copies of one item counted in the right order).
-	private final Deque<PendingClick> pendingClicks = new ArrayDeque<>();
-
-	private static final class PendingClick
-	{
-		final RegearList list;
-		final int lane;
-		final int itemId;
-		final int tick;
-
-		PendingClick(RegearList list, int lane, int itemId, int tick)
-		{
-			this.list = list;
-			this.lane = lane;
-			this.itemId = itemId;
-			this.tick = tick;
-		}
-	}
+	// Inventory snapshot marking the start of the current regear ("0 withdrawn from here"). Captured
+	// when the bank opens and when a sequence is reset. Progress is current inventory minus this
+	// baseline, so lane positions are derived from what you actually hold and self-correct on any
+	// misclick, double-withdraw or wrong order.
+	private final Map<Integer, Integer> baseline = new HashMap<>();
 
 	@Provides
 	RegearConfig provideConfig(ConfigManager configManager)
@@ -164,7 +147,7 @@ public class RegearPlugin extends Plugin
 		panel = null;
 		data = null;
 		bankOpen = false;
-		invCounts.clear();
+		baseline.clear();
 	}
 
 	// --- Panel API ---------------------------------------------------------------------------------
@@ -188,6 +171,7 @@ public class RegearPlugin extends Plugin
 		{
 			clientThread.invoke(() ->
 			{
+				reconcileAll();
 				bankController.applyLayout(tick);
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
@@ -251,8 +235,6 @@ public class RegearPlugin extends Plugin
 		// Advance the tick clock, and when a lane's hold window ends re-apply so its next item
 		// appears. Only re-applies on the exact release tick, so idle ticks do no work.
 		tick++;
-		// Drop withdraw clicks that never produced an inventory change (e.g. a cancelled Withdraw-X).
-		pendingClicks.removeIf(pc -> tick - pc.tick > 3);
 		if (!bankOpen || data == null)
 		{
 			return;
@@ -278,18 +260,17 @@ public class RegearPlugin extends Plugin
 		if (event.getGroupId() == BANK_GROUP)
 		{
 			bankOpen = true;
-			snapshotInventory();
+			captureBaseline();
 			for (RegearList list : data.lists)
 			{
 				if (list != null)
 				{
 					list.clearHolds();
-					list.clearWithdrawn();
 				}
 			}
-			pendingClicks.clear();
+			reconcileAll();
 			applyDragDelay();
-			log.debug("[bank] opened; inventory baseline captured ({} stacks)", invCounts.size());
+			log.debug("[bank] opened; baseline captured ({} stacks)", baseline.size());
 		}
 	}
 
@@ -299,7 +280,6 @@ public class RegearPlugin extends Plugin
 		if (event.getGroupId() == BANK_GROUP)
 		{
 			bankOpen = false;
-			pendingClicks.clear();
 			applyDragDelay();
 			if (resetLists(CompletionBehavior.RESET_ON_BANK_CLOSE))
 			{
@@ -317,12 +297,14 @@ public class RegearPlugin extends Plugin
 			return;
 		}
 
-		final Map<Integer, Integer> before = new HashMap<>(invCounts);
-		snapshotInventory();
-
 		if (bankOpen)
 		{
-			advanceForWithdrawals(before, invCounts);
+			if (reconcileAll())
+			{
+				save();
+				bankController.applyLayout(tick);
+				SwingUtilities.invokeLater(this::refreshWarnings);
+			}
 		}
 		else if (resetLists(CompletionBehavior.RESET_ON_INVENTORY_CHANGE))
 		{
@@ -415,182 +397,189 @@ public class RegearPlugin extends Plugin
 		{
 			menu.setParam0(idx);
 		}
-
-		// Record which slot/lane was clicked so the resulting withdrawal advances that exact lane.
-		final String option = menu.getOption();
-		if (option != null && option.startsWith("Withdraw"))
-		{
-			final RegearBankController.Placement p = bankController.placementForWidget(w);
-			if (p != null && p.list != null)
-			{
-				if (pendingClicks.size() > 16)
-				{
-					pendingClicks.clear();
-				}
-				pendingClicks.add(new PendingClick(p.list, p.lane, w.getItemId(), tick));
-			}
-		}
 	}
 
 	// --- Rotation / detection ----------------------------------------------------------------------
 
-	private void snapshotInventory()
+	private void captureBaseline()
 	{
-		invCounts.clear();
-		final ItemContainer inv = client.getItemContainer(InventoryID.INVENTORY);
-		if (inv == null)
-		{
-			return;
-		}
-		for (Item item : inv.getItems())
-		{
-			if (item.getId() >= 0)
-			{
-				invCounts.merge(item.getId(), item.getQuantity(), Integer::sum);
-			}
-		}
+		baseline.clear();
+		baseline.putAll(currentInventory());
 	}
 
-	/**
-	 * For every item id whose inventory count rose, advance the leftmost active lane (across enabled
-	 * lists) that is currently pointing at that id. Only a genuine gain in the inventory counts as
-	 * evidence of a withdrawal, so hovers, right-click menus and unrelated changes never advance.
-	 */
-	private void advanceForWithdrawals(Map<Integer, Integer> before, Map<Integer, Integer> after)
+	private Map<Integer, Integer> currentInventory()
 	{
-		boolean changed = false;
-		for (Map.Entry<Integer, Integer> e : after.entrySet())
+		final Map<Integer, Integer> counts = new HashMap<>();
+		final ItemContainer inv = client.getItemContainer(InventoryID.INVENTORY);
+		if (inv != null)
 		{
-			final int id = e.getKey();
-			final int gained = e.getValue() - before.getOrDefault(id, 0);
-			if (gained > 0 && creditWithdrawal(id, gained))
+			for (Item item : inv.getItems())
+			{
+				if (item.getId() >= 0)
+				{
+					counts.merge(item.getId(), item.getQuantity(), Integer::sum);
+				}
+			}
+		}
+		return counts;
+	}
+
+	/** Re-derive every enabled list's lane positions from what has actually been withdrawn. Returns
+	 *  true if anything moved, so the caller can re-apply the bank display. */
+	private boolean reconcileAll()
+	{
+		if (data == null)
+		{
+			return false;
+		}
+		final Map<Integer, Integer> cur = currentInventory();
+		// A deposit lowers the baseline, so an item you put back then withdraw again still counts.
+		for (Map.Entry<Integer, Integer> b : baseline.entrySet())
+		{
+			final int c = cur.getOrDefault(b.getKey(), 0);
+			if (c < b.getValue())
+			{
+				b.setValue(c);
+			}
+		}
+		// Withdrawn per item = current inventory minus the (running-minimum) baseline.
+		final Map<Integer, Integer> withdrawn = new HashMap<>();
+		for (Map.Entry<Integer, Integer> e : cur.entrySet())
+		{
+			final int w = e.getValue() - baseline.getOrDefault(e.getKey(), 0);
+			if (w > 0)
+			{
+				withdrawn.put(e.getKey(), w);
+			}
+		}
+		boolean changed = false;
+		for (RegearList list : data.lists)
+		{
+			if (list != null && list.enabled && reconcile(list, new HashMap<>(withdrawn)))
 			{
 				changed = true;
 			}
 		}
-		if (changed)
-		{
-			save();
-			bankController.applyLayout(tick);
-			SwingUtilities.invokeLater(this::refreshWarnings);
-		}
+		return changed;
 	}
 
 	/**
-	 * Credit a withdrawal of {@code gained} of item {@code id} to the leftmost active lane pointing at
-	 * it. The lane only advances once the amount withdrawn reaches the item's required quantity, so a
-	 * multi-withdraw item (e.g. 30 runes pulled 10 at a time) stays put until it is fully withdrawn.
-	 * Returns true if a lane matched (advanced or made partial progress) so the display refreshes.
+	 * Point each lane of a list at the first item in its column that has not yet been withdrawn,
+	 * consuming {@code avail} (the withdrawn multiset) greedily in list order. Because it is derived
+	 * from what you actually hold, the sequence self-corrects on any misclick or double-withdraw.
 	 */
-	private boolean creditWithdrawal(int id, int gained)
+	private boolean reconcile(RegearList list, Map<Integer, Integer> avail)
 	{
-		boolean changed = false;
-		// First give the withdrawal to the exact slots the player clicked, in click order, so several
-		// copies of one item each advance their own lane instead of all counting against the first.
-		PendingClick pc;
-		while (gained > 0 && (pc = pollPending(id)) != null)
+		list.ensureLanes();
+		final int n = list.items.size();
+		final int[] satisfied = new int[n];
+		for (int i = 0; i < n; i++)
 		{
-			final int used = creditLane(pc.list, pc.lane, id, gained);
-			if (used <= 0)
+			final RegearItem it = list.items.get(i);
+			final int req = Math.max(1, it.quantity);
+			int got = 0;
+			while (got < req && consume(avail, it))
 			{
-				continue; // stale click (that lane already moved on); skip it
+				got++;
 			}
-			gained -= used;
-			changed = true;
+			satisfied[i] = got;
 		}
-		// Anything left over (no matching click recorded) falls back to the leftmost active lane.
-		while (gained > 0)
+		final int lanes = list.laneCount();
+		boolean changed = false;
+		for (int k = 0; k < lanes; k++)
 		{
-			RegearList foundList = null;
-			int foundLane = -1;
-			outer:
-			for (RegearList list : data.lists)
+			int idx = k;
+			while (idx < n && satisfied[idx] >= Math.max(1, list.items.get(idx).quantity))
 			{
-				if (list == null || !list.enabled)
+				idx += lanes;
+			}
+			final int oldCursor = list.laneCursors[k];
+			if (idx != oldCursor)
+			{
+				// Briefly hold a lane that just advanced so a mash does not run straight into the next.
+				if (idx > oldCursor && config.holdTicks() > 0)
 				{
-					continue;
+					list.holdLane(k, tick + config.holdTicks());
 				}
-				final int lanes = list.laneCount();
-				for (int lane = 0; lane < lanes; lane++)
-				{
-					final RegearItem active = list.activeItem(lane);
-					if (active != null && active.matches(id)
-						&& list.getWithdrawn(lane) < Math.max(1, active.quantity))
-					{
-						foundList = list;
-						foundLane = lane;
-						break outer;
-					}
-				}
+				list.laneCursors[k] = idx;
+				changed = true;
 			}
-			if (foundList == null)
+			final int progress = idx < n ? satisfied[idx] : 0;
+			if (list.getWithdrawn(k) != progress)
 			{
-				break;
+				list.setWithdrawn(k, progress);
+				changed = true;
 			}
-			final int used = creditLane(foundList, foundLane, id, gained);
-			if (used <= 0)
-			{
-				break;
-			}
-			gained -= used;
-			changed = true;
 		}
 		return changed;
 	}
 
-	/** Credit up to what the lane still needs of item {@code id}; advance + hold when it is met.
-	 *  Returns the amount actually credited (0 if the lane no longer wants this id). */
-	private int creditLane(RegearList list, int lane, int id, int available)
+	private boolean consume(Map<Integer, Integer> avail, RegearItem it)
 	{
-		if (list == null || !list.enabled)
+		if (tryConsume(avail, it.id))
 		{
-			return 0;
+			return true;
 		}
-		final RegearItem active = list.activeItem(lane);
-		if (active == null || !active.matches(id))
+		if (it.alts != null)
 		{
-			return 0;
-		}
-		final int required = Math.max(1, active.quantity);
-		final int need = required - list.getWithdrawn(lane);
-		if (need <= 0)
-		{
-			return 0;
-		}
-		final int credit = Math.min(available, need);
-		list.addWithdrawn(lane, credit);
-		final int total = list.getWithdrawn(lane);
-		if (total >= required)
-		{
-			list.advanceLane(lane, list.effectiveCompletion(config.defaultCompletion()));
-			final int hold = config.holdTicks();
-			if (hold > 0)
+			for (int alt : it.alts)
 			{
-				list.holdLane(lane, tick + hold);
+				if (tryConsume(avail, alt))
+				{
+					return true;
+				}
 			}
-			log.debug("[rotate] '{}' lane {} advanced (withdrew {}/{} of id {})",
-				list.name, lane + 1, total, required, id);
 		}
-		else
-		{
-			log.debug("[rotate] '{}' lane {} progress {}/{} of id {}",
-				list.name, lane + 1, total, required, id);
-		}
-		return credit;
+		return false;
 	}
 
-	private PendingClick pollPending(int id)
+	private static boolean tryConsume(Map<Integer, Integer> avail, int id)
 	{
-		for (java.util.Iterator<PendingClick> it = pendingClicks.iterator(); it.hasNext(); )
+		final Integer c = avail.get(id);
+		if (c != null && c > 0)
 		{
-			final PendingClick candidate = it.next();
-			if (candidate.itemId == id)
-			{
-				it.remove();
-				return candidate;
-			}
+			avail.put(id, c - 1);
+			return true;
 		}
-		return null;
+		return false;
+	}
+
+	/** Reset one list's sequence, re-baselining to the current inventory so it starts over from here. */
+	void resetSequence(RegearList target)
+	{
+		if (target == null)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			captureBaseline();
+			target.resetLanes();
+			reconcileAll();
+			save();
+			bankController.applyLayout(tick);
+			SwingUtilities.invokeLater(this::refreshWarnings);
+		});
+	}
+
+	/** Reset every list's sequence and re-baseline to the current inventory. */
+	void resetAll()
+	{
+		clientThread.invoke(() ->
+		{
+			captureBaseline();
+			for (RegearList list : data.lists)
+			{
+				if (list != null)
+				{
+					list.resetLanes();
+				}
+			}
+			reconcileAll();
+			save();
+			bankController.applyLayout(tick);
+			SwingUtilities.invokeLater(this::refreshWarnings);
+		});
 	}
 
 	private boolean resetLists(CompletionBehavior trigger)

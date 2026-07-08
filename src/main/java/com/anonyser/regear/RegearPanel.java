@@ -749,19 +749,14 @@ class RegearPanel extends PluginPanel
 		final RegearList list = selectedList();
 		if (list != null)
 		{
-			list.resetLanes();
-			plugin.commit();
+			plugin.resetSequence(list);
 			refreshForSelection();
 		}
 	}
 
 	private void resetAllSequences()
 	{
-		for (RegearList list : lists())
-		{
-			list.resetLanes();
-		}
-		plugin.commit();
+		plugin.resetAll();
 		refreshForSelection();
 	}
 

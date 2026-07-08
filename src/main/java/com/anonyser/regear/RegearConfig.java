@@ -172,13 +172,13 @@ public interface RegearConfig extends Config
 		name = "Hold after withdraw (ticks)",
 		description = "Anti-spam limiter: after you withdraw an active item, keep that slot empty for<br>"
 			+ "this many game ticks (~0.6s each) before the next item appears, so mashing a slot only<br>"
-			+ "pulls one item at a time, in order. 0 turns the limiter off.",
+			+ "pulls one item at a time, in order. 0 = fastest (no hold); higher = firmer limit.",
 		position = 1,
 		section = behaviourSection
 	)
 	default int holdTicks()
 	{
-		return 2;
+		return 1;
 	}
 
 	@ConfigItem(

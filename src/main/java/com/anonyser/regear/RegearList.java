@@ -198,6 +198,19 @@ class RegearList
 		return laneWithdrawn != null && lane >= 0 && lane < laneWithdrawn.length ? laneWithdrawn[lane] : 0;
 	}
 
+	void setWithdrawn(int lane, int amount)
+	{
+		final int lanes = laneCount();
+		if (laneWithdrawn == null || laneWithdrawn.length != lanes)
+		{
+			laneWithdrawn = new int[lanes];
+		}
+		if (lane >= 0 && lane < laneWithdrawn.length)
+		{
+			laneWithdrawn[lane] = amount;
+		}
+	}
+
 	void clearWithdrawn()
 	{
 		laneWithdrawn = null;
