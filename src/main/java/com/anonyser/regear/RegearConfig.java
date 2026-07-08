@@ -180,18 +180,6 @@ public interface RegearConfig extends Config
 	}
 
 	@ConfigItem(
-		keyName = "debug",
-		name = "Debug logging",
-		description = "Write verbose Regear events to the dev log (developer use).",
-		position = 2,
-		section = behaviourSection
-	)
-	default boolean debug()
-	{
-		return false;
-	}
-
-	@ConfigItem(
 		keyName = "openPanel",
 		name = "Open Regear panel",
 		description = "Tick to open the Regear side panel; it opens the panel then unticks itself.",

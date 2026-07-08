@@ -230,10 +230,13 @@ class RegearBankController
 		}
 		container.revalidate();
 
-		if (config.debug())
+		log.debug("[bank] applied {} placement(s) (overlap={}, missing={}) from {} bank item widget(s)",
+			placements.size(), overlapDetected, missingLabels.size(), itemWidgets.size());
+		for (Placement p : placements)
 		{
-			log.debug("[bank] applied {} placement(s), overlap={}, missing={}",
-				placements.size(), overlapDetected, missingLabels.size());
+			final String state = p.missing ? "MISSING" : p.duplicate ? "DUP" : p.widget != null ? "placed" : "?";
+			log.debug("[bank]   '{}' lane {} -> slot {} (x={},y={}) id {} [{}]",
+				p.listName, p.lane + 1, p.slot, slotToX(p.slot), slotToY(p.slot), p.item.id, state);
 		}
 	}
 

@@ -122,11 +122,13 @@ public class RegearPlugin extends Plugin
 
 		overlayManager.add(idOverlay);
 		overlayManager.add(bankOverlay);
+		log.debug("[life] Regear started with {} list(s)", data.lists.size());
 	}
 
 	@Override
 	protected void shutDown()
 	{
+		log.debug("[life] Regear stopped");
 		overlayManager.remove(idOverlay);
 		overlayManager.remove(bankOverlay);
 		clientToolbar.removeNavigation(navButton);
@@ -222,10 +224,7 @@ public class RegearPlugin extends Plugin
 		{
 			bankOpen = true;
 			snapshotInventory();
-			if (config.debug())
-			{
-				log.debug("[bank] opened; inventory baseline captured ({} stacks)", invCounts.size());
-			}
+			log.debug("[bank] opened; inventory baseline captured ({} stacks)", invCounts.size());
 		}
 	}
 
@@ -239,10 +238,7 @@ public class RegearPlugin extends Plugin
 			{
 				commit();
 			}
-			if (config.debug())
-			{
-				log.debug("[bank] closed");
-			}
+			log.debug("[bank] closed");
 		}
 	}
 
@@ -370,11 +366,8 @@ public class RegearPlugin extends Plugin
 				if (active != null && active.id == id)
 				{
 					list.advanceLane(lane, list.effectiveCompletion(config.defaultCompletion()));
-					if (config.debug())
-					{
-						log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {}",
-							list.name, lane + 1, id);
-					}
+					log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {}",
+						list.name, lane + 1, id);
 					return true;
 				}
 			}
