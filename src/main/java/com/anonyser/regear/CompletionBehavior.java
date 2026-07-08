@@ -9,13 +9,13 @@ public enum CompletionBehavior
 	/** Leave finished lanes empty; nothing more is shown. */
 	STOP("Stop at end"),
 	/** Wrap each finished lane back to its starting item and keep going. */
-	LOOP("Loop back to start"),
+	LOOP("Loop to start"),
 	/** Reset the whole sequence to the start whenever the bank closes. */
-	RESET_ON_BANK_CLOSE("Reset when bank closes"),
+	RESET_ON_BANK_CLOSE("Reset on bank close"),
 	/** Reset the whole sequence to the start on the next inventory change. */
-	RESET_ON_INVENTORY_CHANGE("Reset when inventory changes"),
+	RESET_ON_INVENTORY_CHANGE("Reset on inv change"),
 	/** Never auto-reset; only the panel's Reset button restarts the sequence. */
-	MANUAL("Manual reset only");
+	MANUAL("Manual reset");
 
 	private final String label;
 

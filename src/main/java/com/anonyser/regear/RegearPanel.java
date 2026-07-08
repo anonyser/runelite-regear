@@ -9,6 +9,7 @@ import java.awt.Font;
 import java.awt.Graphics;
 import java.awt.Graphics2D;
 import java.awt.GridLayout;
+import java.awt.Insets;
 import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
@@ -91,7 +92,7 @@ class RegearPanel extends PluginPanel
 		content.add(listButtonsRow());
 		content.add(vspace());
 		content.add(enabledRow());
-		content.add(labeled("Visible items", visibleCount));
+		content.add(labeled("Visible", visibleCount));
 		content.add(labeled("Pattern", patternSelector));
 		content.add(customFieldRow());
 		content.add(vspace());
@@ -105,7 +106,7 @@ class RegearPanel extends PluginPanel
 		content.add(completionInfo);
 		content.add(resetRow());
 		content.add(vspace());
-		content.add(section("Items (panel order = withdraw order)"));
+		content.add(section("Items (withdraw order)"));
 		content.add(pickHint);
 		content.add(itemGrid);
 		content.add(vspace());
@@ -207,9 +208,10 @@ class RegearPanel extends PluginPanel
 		final JPanel row = new JPanel(new BorderLayout(4, 0));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
-		final JButton all = button("Reset all", e -> resetAllSequences());
-		all.setToolTipText("Reset the sequence of every list back to the start");
-		all.setPreferredSize(new Dimension(78, 26));
+		final JButton all = button("All", e -> resetAllSequences());
+		all.setToolTipText("Reset every list's sequence back to the start");
+		all.setPreferredSize(new Dimension(44, 26));
+		all.setMargin(new Insets(0, 0, 0, 0));
 		row.add(all, BorderLayout.WEST);
 		row.add(button("Reset sequence", e -> resetSequence()), BorderLayout.CENTER);
 		return row;
@@ -233,7 +235,7 @@ class RegearPanel extends PluginPanel
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
 		final JLabel l = new JLabel(text);
 		l.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
-		l.setPreferredSize(new Dimension(80, 20));
+		l.setPreferredSize(new Dimension(64, 20));
 		row.add(l, BorderLayout.WEST);
 		row.add(field, BorderLayout.CENTER);
 		return row;
