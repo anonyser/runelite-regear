@@ -32,10 +32,11 @@ class RegearList
 	/** Persisted progress: {@code laneCursors[k]} is the item index currently shown in lane k. */
 	int[] laneCursors;
 	/**
-	 * Runtime-only (not persisted): a lane briefly held empty right after a withdrawal, so mashing a
-	 * slot pulls only one item per lane per tick. Set on advance, cleared on the next game tick.
+	 * Runtime-only (not persisted): the game tick at which each lane's post-withdrawal hold ends. A
+	 * lane is held (its slot shown empty) while the current tick is below this value, so mashing a
+	 * slot pulls only one item per hold window. Set on advance; expires by tick.
 	 */
-	transient boolean[] laneHeld;
+	transient int[] laneHoldUntilTick;
 
 	// Required by Gson for deserialization.
 	RegearList()
@@ -119,37 +120,39 @@ class RegearList
 		{
 			laneCursors[k] = k;
 		}
-		laneHeld = null;
+		laneHoldUntilTick = null;
 	}
 
-	/** Hold a lane empty until the next game tick (anti-spam limiter). */
-	void holdLane(int lane)
+	/** Hold a lane empty until the given game tick (anti-spam limiter). */
+	void holdLane(int lane, int releaseTick)
 	{
 		final int lanes = laneCount();
-		if (laneHeld == null || laneHeld.length != lanes)
+		if (laneHoldUntilTick == null || laneHoldUntilTick.length != lanes)
 		{
-			laneHeld = new boolean[lanes];
+			laneHoldUntilTick = new int[lanes];
 		}
-		if (lane >= 0 && lane < laneHeld.length)
+		if (lane >= 0 && lane < laneHoldUntilTick.length)
 		{
-			laneHeld[lane] = true;
+			laneHoldUntilTick[lane] = releaseTick;
 		}
 	}
 
-	boolean isLaneHeld(int lane)
+	boolean isLaneHeld(int lane, int currentTick)
 	{
-		return laneHeld != null && lane >= 0 && lane < laneHeld.length && laneHeld[lane];
+		return laneHoldUntilTick != null && lane >= 0 && lane < laneHoldUntilTick.length
+			&& currentTick < laneHoldUntilTick[lane];
 	}
 
-	boolean anyHeld()
+	/** True if any lane's hold ends exactly on this tick (so the next item should now be shown). */
+	boolean releaseDue(int currentTick)
 	{
-		if (laneHeld == null)
+		if (laneHoldUntilTick == null)
 		{
 			return false;
 		}
-		for (boolean held : laneHeld)
+		for (int until : laneHoldUntilTick)
 		{
-			if (held)
+			if (until == currentTick)
 			{
 				return true;
 			}
@@ -159,7 +162,7 @@ class RegearList
 
 	void clearHolds()
 	{
-		laneHeld = null;
+		laneHoldUntilTick = null;
 	}
 
 	/** Absolute bank slot for a lane = anchor + offset, or -1 if it would fall outside the grid. */

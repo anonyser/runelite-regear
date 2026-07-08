@@ -97,6 +97,7 @@ public class RegearPlugin extends Plugin
 	private NavigationButton navButton;
 
 	private boolean bankOpen;
+	private int tick;
 	private final Map<Integer, Integer> invCounts = new HashMap<>();
 
 	@Provides
@@ -161,7 +162,7 @@ public class RegearPlugin extends Plugin
 		{
 			clientThread.invoke(() ->
 			{
-				bankController.applyLayout();
+				bankController.applyLayout(tick);
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -213,7 +214,7 @@ public class RegearPlugin extends Plugin
 	{
 		if (event.getScriptId() == ScriptID.BANKMAIN_FINISHBUILDING)
 		{
-			bankController.applyLayout();
+			bankController.applyLayout(tick);
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		}
 	}
@@ -221,24 +222,24 @@ public class RegearPlugin extends Plugin
 	@Subscribe
 	public void onGameTick(GameTick event)
 	{
-		// Release any lanes held empty by the anti-spam limiter, one tick after their withdrawal,
-		// then re-apply so the next item appears. This caps withdrawals at one per lane per tick.
+		// Advance the tick clock, and when a lane's hold window ends re-apply so its next item
+		// appears. Only re-applies on the exact release tick, so idle ticks do no work.
+		tick++;
 		if (!bankOpen || data == null)
 		{
 			return;
 		}
-		boolean released = false;
+		boolean releaseDue = false;
 		for (RegearList list : data.lists)
 		{
-			if (list != null && list.anyHeld())
+			if (list != null && list.releaseDue(tick))
 			{
-				list.clearHolds();
-				released = true;
+				releaseDue = true;
 			}
 		}
-		if (released)
+		if (releaseDue)
 		{
-			bankController.applyLayout();
+			bankController.applyLayout(tick);
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		}
 	}
@@ -314,7 +315,7 @@ public class RegearPlugin extends Plugin
 		{
 			clientThread.invoke(() ->
 			{
-				bankController.applyLayout();
+				bankController.applyLayout(tick);
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -379,7 +380,7 @@ public class RegearPlugin extends Plugin
 		if (advanced)
 		{
 			save();
-			bankController.applyLayout();
+			bankController.applyLayout(tick);
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		}
 	}
@@ -399,12 +400,13 @@ public class RegearPlugin extends Plugin
 				if (active != null && active.id == id)
 				{
 					list.advanceLane(lane, list.effectiveCompletion(config.defaultCompletion()));
-					if (config.oneWithdrawPerTick())
+					final int hold = config.holdTicks();
+					if (hold > 0)
 					{
-						list.holdLane(lane);
+						list.holdLane(lane, tick + hold);
 					}
-					log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {} (held={})",
-						list.name, lane + 1, id, config.oneWithdrawPerTick());
+					log.debug("[rotate] '{}' lane {} advanced on withdrawal of id {} (holdTicks={})",
+						list.name, lane + 1, id, hold);
 					return true;
 				}
 			}

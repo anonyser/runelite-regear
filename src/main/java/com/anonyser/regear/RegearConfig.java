@@ -166,17 +166,19 @@ public interface RegearConfig extends Config
 		return CompletionBehavior.STOP;
 	}
 
+	@Range(min = 0, max = 5)
 	@ConfigItem(
-		keyName = "oneWithdrawPerTick",
-		name = "One item per tick",
-		description = "Anti-spam limiter: after you withdraw an active item, hold that slot empty<br>"
-			+ "until the next tick so mashing the same spot only pulls one item at a time, in order.",
+		keyName = "holdTicks",
+		name = "Hold after withdraw (ticks)",
+		description = "Anti-spam limiter: after you withdraw an active item, keep that slot empty for<br>"
+			+ "this many game ticks (~0.6s each) before the next item appears, so mashing a slot only<br>"
+			+ "pulls one item at a time, in order. 0 turns the limiter off.",
 		position = 1,
 		section = behaviourSection
 	)
-	default boolean oneWithdrawPerTick()
+	default int holdTicks()
 	{
-		return true;
+		return 2;
 	}
 
 	@ConfigItem(

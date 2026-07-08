@@ -104,10 +104,14 @@ class RegearBankController
 	}
 
 	/**
-	 * Rebuild the bank display for the current lists. Runs on the client thread from the bank's
-	 * finish-building script. Leaves the bank untouched when Regear has nothing to show.
+	 * Rebuild the bank display for the current lists. Runs on the client thread. Hides only the items
+	 * that are not current targets, and moves a target only when its slot actually changes, so
+	 * repeated calls on an unchanged bank do no work and never flicker. Leaves the bank untouched when
+	 * Regear has nothing to manage.
+	 *
+	 * @param currentTick current game tick, used to evaluate each lane's anti-spam hold
 	 */
-	void applyLayout()
+	void applyLayout(int currentTick)
 	{
 		placements.clear();
 		missingLabels.clear();
@@ -147,7 +151,7 @@ class RegearBankController
 		}
 
 		// Resolve the active target of every enabled list into a slot, tracking cross-list overlap.
-		// A held lane (just withdrawn) still keeps the bank filtered but leaves its slot empty this tick.
+		// A held lane (just withdrawn) still keeps the bank filtered but leaves its slot empty.
 		final Map<Integer, Placement> bySlot = new LinkedHashMap<>();
 		boolean managing = false;
 		for (RegearList list : data.lists)
@@ -166,10 +170,8 @@ class RegearBankController
 				{
 					continue;
 				}
-				// This list manages the bank (everything else stays hidden) even while this lane is
-				// momentarily held empty right after a withdrawal.
 				managing = true;
-				if (list.isLaneHeld(lane))
+				if (list.isLaneHeld(lane, currentTick))
 				{
 					continue;
 				}
@@ -178,7 +180,6 @@ class RegearBankController
 				if (bySlot.containsKey(slot))
 				{
 					overlapDetected = true;
-					// Keep the first list's claim on the slot; the later one is reported as overlap.
 					continue;
 				}
 				bySlot.put(slot, p);
@@ -191,12 +192,8 @@ class RegearBankController
 			return;
 		}
 
-		// Take over the bank: hide every item, then reveal and reposition just our targets.
-		for (Widget w : itemWidgets)
-		{
-			w.setHidden(true);
-		}
-
+		// Resolve each target to a bank widget up front, so the hide pass can skip targets -- never
+		// hide-then-show one, which would flicker it.
 		final Set<Widget> used = new HashSet<>();
 		int maxRow = 0;
 		for (Placement p : bySlot.values())
@@ -218,18 +215,55 @@ class RegearBankController
 				continue;
 			}
 			used.add(w);
-			w.setOriginalX(slotToX(p.slot));
-			w.setOriginalY(slotToY(p.slot));
-			w.setHidden(false);
-			w.revalidate();
 			p.widget = w;
 			maxRow = Math.max(maxRow, p.slot / COLUMNS);
 			placements.add(p);
 		}
 
-		// Keep the placed rows in view: pin the scroll to the top and size the scroll area to fit.
-		container.setScrollY(0);
-		client.setVarcIntValue(VarClientID.BANK_SCROLLPOS, 0);
+		// Hide non-target items and position targets, touching only widgets whose state actually
+		// changes, so redundant re-applies are no-ops (this is what stops the flicker).
+		boolean changed = false;
+		for (Widget w : itemWidgets)
+		{
+			if (!used.contains(w) && !w.isHidden())
+			{
+				w.setHidden(true);
+				changed = true;
+			}
+		}
+		for (Placement p : placements)
+		{
+			final Widget w = p.widget;
+			if (w == null)
+			{
+				continue;
+			}
+			final int x = slotToX(p.slot);
+			final int y = slotToY(p.slot);
+			if (w.isHidden() || w.getOriginalX() != x || w.getOriginalY() != y)
+			{
+				w.setOriginalX(x);
+				w.setOriginalY(y);
+				w.setHidden(false);
+				w.revalidate();
+				changed = true;
+			}
+		}
+
+		if (!changed)
+		{
+			return;
+		}
+
+		// Keep the placed rows in view and reflow once, only when something actually moved.
+		if (container.getScrollY() != 0)
+		{
+			container.setScrollY(0);
+		}
+		if (client.getVarcIntValue(VarClientID.BANK_SCROLLPOS) != 0)
+		{
+			client.setVarcIntValue(VarClientID.BANK_SCROLLPOS, 0);
+		}
 		final int neededHeight = (maxRow + 1) * (ITEM_HEIGHT + Y_PADDING);
 		if (container.getScrollHeight() < neededHeight)
 		{
@@ -237,13 +271,13 @@ class RegearBankController
 		}
 		container.revalidate();
 
-		log.debug("[bank] applied {} placement(s) (overlap={}, missing={}) from {} bank item widget(s)",
+		log.debug("[bank] applied {} placement(s) (overlap={}, missing={}) from {} widget(s)",
 			placements.size(), overlapDetected, missingLabels.size(), itemWidgets.size());
 		for (Placement p : placements)
 		{
-			final String state = p.missing ? "MISSING" : p.duplicate ? "DUP" : p.widget != null ? "placed" : "?";
-			log.debug("[bank]   '{}' lane {} -> slot {} (x={},y={}) id {} [{}]",
-				p.listName, p.lane + 1, p.slot, slotToX(p.slot), slotToY(p.slot), p.item.id, state);
+			final String state = p.missing ? "MISSING" : p.duplicate ? "DUP" : "placed";
+			log.debug("[bank]   '{}' lane {} -> slot {} id {} [{}]",
+				p.listName, p.lane + 1, p.slot, p.item.id, state);
 		}
 	}
 
