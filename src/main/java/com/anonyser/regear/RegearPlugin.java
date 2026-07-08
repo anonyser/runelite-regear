@@ -454,7 +454,7 @@ public class RegearPlugin extends Plugin
 			for (int lane = 0; lane < lanes; lane++)
 			{
 				final RegearItem active = list.activeItem(lane);
-				if (active == null || active.id != id)
+				if (active == null || !active.matches(id))
 				{
 					continue;
 				}

@@ -23,6 +23,7 @@ import javax.swing.JComboBox;
 import javax.swing.JComponent;
 import javax.swing.JLabel;
 import javax.swing.JOptionPane;
+import javax.swing.JMenu;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JMenuItem;
@@ -64,10 +65,13 @@ class RegearPanel extends PluginPanel
 	private final JTextField idField = new JTextField();
 	private final JPanel warningsPanel = new JPanel();
 	private final JLabel completionInfo = new JLabel();
+	private final JLabel pickHint = new JLabel();
 
 	// Guards against the control listeners firing while we are populating them from the model.
 	private boolean loading;
 	private int dragFrom = -1;
+	// When >= 0, the panel is in "pick an alternative for item N" mode: clicking a slot links it.
+	private int pickAltFor = -1;
 
 	RegearPanel(RegearPlugin plugin, ItemManager itemManager, ClientThread clientThread)
 	{
@@ -100,6 +104,7 @@ class RegearPanel extends PluginPanel
 		content.add(resetRow());
 		content.add(vspace());
 		content.add(section("Items (panel order = withdraw order)"));
+		content.add(pickHint);
 		content.add(itemGrid);
 		content.add(vspace());
 		content.add(addRow());
@@ -109,6 +114,10 @@ class RegearPanel extends PluginPanel
 		warningsPanel.setLayout(new BoxLayout(warningsPanel, BoxLayout.Y_AXIS));
 		completionInfo.setFont(FontManager.getRunescapeSmallFont());
 		completionInfo.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		pickHint.setFont(FontManager.getRunescapeSmallFont());
+		pickHint.setForeground(ColorScheme.BRAND_ORANGE);
+		pickHint.setAlignmentX(LEFT_ALIGNMENT);
+		pickHint.setVisible(false);
 
 		add(content, BorderLayout.NORTH);
 		wireListeners();
@@ -193,10 +202,15 @@ class RegearPanel extends PluginPanel
 
 	private JComponent resetRow()
 	{
-		final JButton reset = button("Reset sequence", e -> resetSequence());
-		reset.setAlignmentX(LEFT_ALIGNMENT);
-		reset.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
-		return reset;
+		final JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+		final JButton all = button("Reset all", e -> resetAllSequences());
+		all.setToolTipText("Reset the sequence of every list back to the start");
+		all.setPreferredSize(new Dimension(78, 26));
+		row.add(all, BorderLayout.WEST);
+		row.add(button("Reset sequence", e -> resetSequence()), BorderLayout.CENTER);
+		return row;
 	}
 
 	private JComponent addRow()
@@ -457,6 +471,12 @@ class RegearPanel extends PluginPanel
 		}
 		loading = false;
 
+		pickHint.setVisible(pickAltFor >= 0);
+		if (pickAltFor >= 0)
+		{
+			pickHint.setText("<html>Click an item to link it as an alternative (any other click cancels)</html>");
+		}
+
 		rebuildGrid();
 		revalidate();
 		repaint();
@@ -483,16 +503,19 @@ class RegearPanel extends PluginPanel
 		final JPanel slot = new JPanel(new BorderLayout());
 		slot.setPreferredSize(new Dimension(44, 44));
 		slot.setBackground(ColorScheme.DARKER_GRAY_COLOR);
-		slot.setBorder(BorderFactory.createLineBorder(ColorScheme.DARK_GRAY_COLOR));
+		final boolean picking = pickAltFor >= 0 && pickAltFor != index;
+		slot.setBorder(BorderFactory.createLineBorder(
+			picking ? ColorScheme.BRAND_ORANGE : ColorScheme.DARK_GRAY_COLOR));
 
 		final JLabel icon = new JLabel();
 		icon.setHorizontalAlignment(SwingConstants.CENTER);
 		icon.setVerticalAlignment(SwingConstants.CENTER);
 		slot.add(icon, BorderLayout.CENTER);
 
-		final JLabel tag = new JLabel(String.valueOf(index + 1), SwingConstants.CENTER);
+		final boolean hasAlts = !item.alts.isEmpty();
+		final JLabel tag = new JLabel((index + 1) + (hasAlts ? "+" : ""), SwingConstants.CENTER);
 		tag.setFont(FontManager.getRunescapeSmallFont());
-		tag.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		tag.setForeground(hasAlts ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
 		slot.add(tag, BorderLayout.SOUTH);
 
 		// Resolve the icon and name off the client thread, then apply on the EDT.
@@ -506,7 +529,8 @@ class RegearPanel extends PluginPanel
 			{
 				img.addTo(icon);
 				slot.setToolTipText((name != null ? name : "Item") + " (id " + id + ")"
-					+ (item.note != null && !item.note.isEmpty() ? " - " + item.note : ""));
+					+ (item.note != null && !item.note.isEmpty() ? " - " + item.note : "")
+					+ (hasAlts ? " | or: " + item.alts : ""));
 			});
 		});
 
@@ -515,6 +539,17 @@ class RegearPanel extends PluginPanel
 			@Override
 			public void mousePressed(MouseEvent e)
 			{
+				// In "pick an alternative" mode a left-click links the clicked item; anything else cancels.
+				if (pickAltFor >= 0)
+				{
+					if (SwingUtilities.isLeftMouseButton(e) && index != pickAltFor)
+					{
+						addAlternative(pickAltFor, list.items.get(index).id);
+					}
+					pickAltFor = -1;
+					refreshForSelection();
+					return;
+				}
 				dragFrom = index;
 				maybePopup(e, list, index);
 			}
@@ -593,6 +628,32 @@ class RegearPanel extends PluginPanel
 				refreshForSelection();
 			}
 		}));
+		final JMenu orMenu = new JMenu("Alternative (or)");
+		orMenu.add(menuItem("Type item id...", () ->
+		{
+			final String in = JOptionPane.showInputDialog(this, "Alternative item id (either version counts):");
+			final Integer v = parseId(in);
+			if (v != null)
+			{
+				addAlternative(index, v);
+				refreshForSelection();
+			}
+		}));
+		orMenu.add(menuItem("Pick from panel", () ->
+		{
+			pickAltFor = index;
+			refreshForSelection();
+		}));
+		if (!list.items.get(index).alts.isEmpty())
+		{
+			orMenu.add(menuItem("Clear alternatives", () ->
+			{
+				list.items.get(index).alts.clear();
+				plugin.commit();
+				refreshForSelection();
+			}));
+		}
+		menu.add(orMenu);
 		menu.add(menuItem("Move left", () -> reorder(list, index, index - 1)));
 		menu.add(menuItem("Move right", () -> reorder(list, index, index + 1)));
 		menu.show(e.getComponent(), e.getX(), e.getY());
@@ -699,6 +760,32 @@ class RegearPanel extends PluginPanel
 			plugin.commit();
 			refreshForSelection();
 		}
+	}
+
+	private void resetAllSequences()
+	{
+		for (RegearList list : lists())
+		{
+			list.resetLanes();
+		}
+		plugin.commit();
+		refreshForSelection();
+	}
+
+	private void addAlternative(int itemIndex, int altId)
+	{
+		final RegearList list = selectedList();
+		if (list == null || itemIndex < 0 || itemIndex >= list.items.size() || altId <= 0)
+		{
+			return;
+		}
+		final RegearItem it = list.items.get(itemIndex);
+		if (it.id == altId || it.alts.contains(altId))
+		{
+			return; // already the primary id or an existing alternative
+		}
+		it.alts.add(altId);
+		plugin.commit();
 	}
 
 	private void addFromField()

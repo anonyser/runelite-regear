@@ -72,6 +72,13 @@ class RegearList
 		{
 			items = new ArrayList<>();
 		}
+		for (RegearItem item : items)
+		{
+			if (item != null && item.alts == null)
+			{
+				item.alts = new ArrayList<>();
+			}
+		}
 		if (customOffsets == null)
 		{
 			customOffsets = new ArrayList<>();

@@ -53,6 +53,7 @@ class RegearBankController
 		boolean synthetic;   // shown on a spare widget repurposed to display a repeated item
 		int withdrawn;       // amount of this item withdrawn so far toward its required quantity
 		int required;        // quantity to withdraw before the lane advances (>=1)
+		int shownId;         // the id actually shown/withdrawn (primary, or an "or" alternative)
 
 		Placement(String listName, int lane, int slot, RegearItem item)
 		{
@@ -233,7 +234,23 @@ class RegearBankController
 		for (Placement p : bySlot.values())
 		{
 			maxRow = Math.max(maxRow, p.slot / COLUMNS);
-			final Widget w = byItemId.get(p.item.id);
+			// Show whichever of the item's ids (primary, then "or" alternatives) is actually in the bank.
+			int shownId = p.item.id;
+			Widget w = byItemId.get(shownId);
+			if (w == null && p.item.alts != null)
+			{
+				for (int alt : p.item.alts)
+				{
+					final Widget aw = byItemId.get(alt);
+					if (aw != null)
+					{
+						w = aw;
+						shownId = alt;
+						break;
+					}
+				}
+			}
+			p.shownId = shownId;
 			if (w == null)
 			{
 				p.missing = true;
@@ -276,9 +293,9 @@ class RegearBankController
 					p.duplicate = true; // no spare widget available to show this copy
 					continue;
 				}
-				final Widget real = byItemId.get(p.item.id);
+				final Widget real = byItemId.get(p.shownId);
 				synthOriginal.put(spare, spare.getItemId());
-				spare.setItemId(p.item.id);
+				spare.setItemId(p.shownId);
 				spare.setItemQuantity(real != null ? real.getItemQuantity() : 1);
 				spare.setItemQuantityMode(ItemQuantityMode.STACKABLE);
 				used.add(spare);

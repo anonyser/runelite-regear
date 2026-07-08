@@ -179,6 +179,17 @@ public class RegearRotationTest
 	}
 
 	@Test
+	public void alternativesCountAsMatches()
+	{
+		final RegearItem it = new RegearItem(4587);
+		assertFalse(it.matches(4585));
+		it.alts.add(4585);
+		assertTrue(it.matches(4587)); // the primary id
+		assertTrue(it.matches(4585)); // an alternative ("or")
+		assertFalse(it.matches(1234));
+	}
+
+	@Test
 	public void footprintSlotsCoverEveryLane()
 	{
 		final RegearList l = list(PatternPreset.VERTICAL, 3, 6);
