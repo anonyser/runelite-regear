@@ -67,6 +67,10 @@ class RegearPanel extends PluginPanel
 	private final JPanel warningsPanel = new JPanel();
 	private final JLabel completionInfo = new JLabel();
 	private final JLabel pickHint = new JLabel();
+	private final JButton tutorialButton = new JButton("Tutorial");
+	private final JCheckBox hideTutorialBox = new JCheckBox();
+	private javax.swing.Timer flashTimer;
+	private boolean flashOn;
 
 	// Guards against the control listeners firing while we are populating them from the model.
 	private boolean loading;
@@ -130,6 +134,23 @@ class RegearPanel extends PluginPanel
 
 		add(content, BorderLayout.NORTH);
 		wireListeners();
+
+		// Flash the Tutorial button (green/yellow to draw the eye, red while a tutorial is running).
+		flashTimer = new javax.swing.Timer(450, e ->
+		{
+			flashOn = !flashOn;
+			if (!tutorialButton.isVisible())
+			{
+				return;
+			}
+			final boolean active = plugin.isTutorialActive();
+			final Color hot = active ? new Color(210, 30, 30) : new Color(0, 165, 45);
+			final Color cool = active ? new Color(90, 0, 0) : new Color(205, 175, 0);
+			tutorialButton.setBackground(flashOn ? hot : cool);
+			tutorialButton.repaint();
+		});
+		flashTimer.start();
+		updateTutorialButton();
 	}
 
 	// --- construction helpers ----------------------------------------------------------------------
@@ -190,7 +211,47 @@ class RegearPanel extends PluginPanel
 		final JButton off = compact(button("Disable all", e -> setAllEnabled(false)));
 		off.setToolTipText("Disable every list so the bank is unfiltered (easier to search while adding items)");
 		row.add(off);
+
+		tutorialButton.setFocusPainted(false);
+		tutorialButton.setBorderPainted(false);
+		tutorialButton.setOpaque(true);
+		tutorialButton.setMargin(new Insets(2, 5, 2, 5));
+		tutorialButton.setFont(FontManager.getRunescapeFont());
+		tutorialButton.setForeground(Color.WHITE);
+		tutorialButton.addActionListener(e ->
+		{
+			plugin.toggleTutorial();
+			updateTutorialButton();
+		});
+		hideTutorialBox.setToolTipText("Hide the tutorial button");
+		hideTutorialBox.addActionListener(e ->
+		{
+			plugin.setHideTutorial(hideTutorialBox.isSelected());
+			updateTutorialButton();
+		});
+		row.add(tutorialButton);
+		row.add(hideTutorialBox);
 		return row;
+	}
+
+	private void updateTutorialButton()
+	{
+		final boolean hidden = plugin.getConfig().hideTutorial();
+		hideTutorialBox.setSelected(hidden);
+		tutorialButton.setVisible(!hidden);
+		final boolean active = plugin.isTutorialActive();
+		tutorialButton.setText(active ? "End tutorial" : "Tutorial");
+		tutorialButton.setToolTipText(active
+			? "Stop the tutorial" : "Start an interactive tutorial on the bank");
+	}
+
+	/** Stop the flashing timer; called when the plugin shuts down so it does not leak. */
+	void stopTimers()
+	{
+		if (flashTimer != null)
+		{
+			flashTimer.stop();
+		}
 	}
 
 	private JComponent customFieldRow()

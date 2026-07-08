@@ -48,12 +48,17 @@ class RegearBankOverlay extends Overlay
 	@Override
 	public Dimension render(Graphics2D graphics)
 	{
-		if (!config.applyInBank())
+		final Widget container = client.getWidget(InterfaceID.Bankmain.ITEMS);
+		if (container == null || container.isHidden())
 		{
 			return null;
 		}
-		final Widget container = client.getWidget(InterfaceID.Bankmain.ITEMS);
-		if (container == null || container.isHidden())
+		if (controller.isTutorialActive())
+		{
+			drawTutorialBanner(graphics, container);
+			return null;
+		}
+		if (!config.applyInBank())
 		{
 			return null;
 		}
@@ -99,6 +104,31 @@ class RegearBankOverlay extends Overlay
 			}
 		}
 		return null;
+	}
+
+	private void drawTutorialBanner(Graphics2D g, Widget container)
+	{
+		final Rectangle b = container.getBounds();
+		if (b == null)
+		{
+			return;
+		}
+		final boolean on = System.currentTimeMillis() / 450 % 2 == 0;
+		final int x = b.x;
+		final int y = b.y;
+		final int w = Math.max(180, b.width);
+		final int h = 40;
+		g.setColor(new Color(0, 0, 0, 200));
+		g.fillRoundRect(x, y, w, h, 8, 8);
+		g.setStroke(new BasicStroke(3f));
+		g.setColor(on ? new Color(0, 220, 60) : new Color(230, 210, 0));
+		g.drawRoundRect(x, y, w, h, 8, 8);
+		g.setFont(FontManager.getRunescapeBoldFont());
+		g.setColor(Color.WHITE);
+		g.drawString("REGEAR TUTORIAL", x + 8, y + 16);
+		g.setFont(FontManager.getRunescapeSmallFont());
+		g.setColor(on ? new Color(255, 90, 90) : new Color(255, 170, 170));
+		g.drawString("Guided steps coming next -- press \"End tutorial\" in the panel to stop", x + 8, y + 32);
 	}
 
 	private void drawProgress(Graphics2D g, Rectangle b, int withdrawn, int required)

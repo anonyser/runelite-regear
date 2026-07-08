@@ -219,4 +219,15 @@ public interface RegearConfig extends Config
 	{
 		return false;
 	}
+
+	@ConfigItem(
+		keyName = "hideTutorial",
+		name = "Hide tutorial button",
+		description = "Hide the flashing Tutorial button in the side panel (the checkbox next to it does the same).",
+		position = 11
+	)
+	default boolean hideTutorial()
+	{
+		return false;
+	}
 }

@@ -142,9 +142,14 @@ public class RegearPlugin extends Plugin
 	{
 		log.debug("[life] Regear stopped");
 		client.setInventoryDragDelay(DEFAULT_DRAG_DELAY);
+		bankController.setTutorialActive(false);
 		overlayManager.remove(idOverlay);
 		overlayManager.remove(bankOverlay);
 		clientToolbar.removeNavigation(navButton);
+		if (panel != null)
+		{
+			panel.stopTimers();
+		}
 		navButton = null;
 		panel = null;
 		data = null;
@@ -162,6 +167,21 @@ public class RegearPlugin extends Plugin
 	RegearConfig getConfig()
 	{
 		return config;
+	}
+
+	boolean isTutorialActive()
+	{
+		return bankController.isTutorialActive();
+	}
+
+	void toggleTutorial()
+	{
+		bankController.setTutorialActive(!bankController.isTutorialActive());
+	}
+
+	void setHideTutorial(boolean hide)
+	{
+		configManager.setConfiguration(RegearConfig.GROUP, "hideTutorial", hide);
 	}
 
 	/** Persist the model, refresh the controller, and re-apply the bank layout if the bank is open. */
