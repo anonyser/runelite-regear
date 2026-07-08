@@ -43,6 +43,7 @@ class RegearBankController
 	static final class Placement
 	{
 		final String listName;
+		RegearList list;     // the list this placement belongs to (for click-accurate advancing)
 		final int lane;      // 0-based lane index within its list
 		final int slot;      // absolute bank slot
 		final RegearItem item;
@@ -91,6 +92,24 @@ class RegearBankController
 	List<Placement> getPlacements()
 	{
 		return placements;
+	}
+
+	/** The placement currently shown on the given bank widget, or null. Used to advance the exact
+	 *  lane whose slot was clicked, so several copies of one item stay counted correctly. */
+	Placement placementForWidget(Widget w)
+	{
+		if (w == null)
+		{
+			return null;
+		}
+		for (Placement p : placements)
+		{
+			if (p.widget == w)
+			{
+				return p;
+			}
+		}
+		return null;
 	}
 
 	List<String> getMissingLabels()
@@ -207,6 +226,7 @@ class RegearBankController
 					continue;
 				}
 				final Placement p = new Placement(list.name, lane, slot, item);
+				p.list = list;
 				p.next = list.nextItem(lane);
 				p.withdrawn = list.getWithdrawn(lane);
 				p.required = Math.max(1, item.quantity);

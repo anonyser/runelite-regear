@@ -72,6 +72,8 @@ class RegearPanel extends PluginPanel
 	private int dragFrom = -1;
 	// When >= 0, the panel is in "pick an alternative for item N" mode: clicking a slot links it.
 	private int pickAltFor = -1;
+	// Whether the alternative being picked/added should become the preferred (shown-first) variant.
+	private boolean pickAltPreferred;
 
 	RegearPanel(RegearPlugin plugin, ItemManager itemManager, ClientThread clientThread)
 	{
@@ -544,7 +546,7 @@ class RegearPanel extends PluginPanel
 				{
 					if (SwingUtilities.isLeftMouseButton(e) && index != pickAltFor)
 					{
-						addAlternative(pickAltFor, list.items.get(index).id);
+						addAlternative(pickAltFor, list.items.get(index).id, pickAltPreferred);
 					}
 					pickAltFor = -1;
 					refreshForSelection();
@@ -629,21 +631,10 @@ class RegearPanel extends PluginPanel
 			}
 		}));
 		final JMenu orMenu = new JMenu("Alternative (or)");
-		orMenu.add(menuItem("Type item id...", () ->
-		{
-			final String in = JOptionPane.showInputDialog(this, "Alternative item id (either version counts):");
-			final Integer v = parseId(in);
-			if (v != null)
-			{
-				addAlternative(index, v);
-				refreshForSelection();
-			}
-		}));
-		orMenu.add(menuItem("Pick from panel", () ->
-		{
-			pickAltFor = index;
-			refreshForSelection();
-		}));
+		orMenu.add(menuItem("Add id, preferred...", () -> promptAlt(index, true)));
+		orMenu.add(menuItem("Add id, fallback...", () -> promptAlt(index, false)));
+		orMenu.add(menuItem("Pick from panel (preferred)", () -> startPick(index, true)));
+		orMenu.add(menuItem("Pick from panel (fallback)", () -> startPick(index, false)));
 		if (!list.items.get(index).alts.isEmpty())
 		{
 			orMenu.add(menuItem("Clear alternatives", () ->
@@ -772,7 +763,7 @@ class RegearPanel extends PluginPanel
 		refreshForSelection();
 	}
 
-	private void addAlternative(int itemIndex, int altId)
+	private void addAlternative(int itemIndex, int altId, boolean preferred)
 	{
 		final RegearList list = selectedList();
 		if (list == null || itemIndex < 0 || itemIndex >= list.items.size() || altId <= 0)
@@ -780,12 +771,39 @@ class RegearPanel extends PluginPanel
 			return;
 		}
 		final RegearItem it = list.items.get(itemIndex);
-		if (it.id == altId || it.alts.contains(altId))
+		it.alts.remove((Integer) altId); // never duplicate an id in the alt list
+		if (preferred)
 		{
-			return; // already the primary id or an existing alternative
+			if (it.id > 0 && it.id != altId)
+			{
+				it.alts.add(0, it.id); // the old primary becomes the top fallback
+			}
+			it.id = altId; // the preferred variant is shown and tried first
 		}
-		it.alts.add(altId);
+		else if (altId != it.id && !it.alts.contains(altId))
+		{
+			it.alts.add(altId);
+		}
 		plugin.commit();
+	}
+
+	private void promptAlt(int index, boolean preferred)
+	{
+		final String in = JOptionPane.showInputDialog(this,
+			(preferred ? "Preferred" : "Fallback") + " alternative item id (either version counts):");
+		final Integer v = parseId(in);
+		if (v != null)
+		{
+			addAlternative(index, v, preferred);
+			refreshForSelection();
+		}
+	}
+
+	private void startPick(int index, boolean preferred)
+	{
+		pickAltFor = index;
+		pickAltPreferred = preferred;
+		refreshForSelection();
 	}
 
 	private void addFromField()
