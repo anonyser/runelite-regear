@@ -19,6 +19,9 @@ class RegearItem
 	String note;
 	/** Alternative item ids that also satisfy this slot ("or"); any of them counts as a match. */
 	List<Integer> alts = new ArrayList<>();
+	/** If set, this item counts as already satisfied while you are wearing it, so it is not shown in
+	 *  the regear (e.g. a Ring of Recoil you still have on -- no point pulling another). Per list. */
+	boolean skipIfWorn;
 
 	// Required by Gson for deserialization.
 	RegearItem()

@@ -554,6 +554,10 @@ class RegearPanel extends PluginPanel
 				{
 					tip.append("<br>&nbsp;&nbsp;fallback ").append(i + 1).append(": ").append(altLines.get(i));
 				}
+				if (item.skipIfWorn)
+				{
+					tip.append("<br>(skip if worn)");
+				}
 				slot.setToolTipText(tip.append("</html>").toString());
 			});
 		});
@@ -667,6 +671,13 @@ class RegearPanel extends PluginPanel
 			}));
 		}
 		menu.add(orMenu);
+		final boolean worn = list.items.get(index).skipIfWorn;
+		menu.add(menuItem((worn ? "✓ " : "") + "Skip if worn", () ->
+		{
+			list.items.get(index).skipIfWorn = !worn;
+			plugin.commit();
+			refreshForSelection();
+		}));
 		menu.add(menuItem("Move left", () -> reorder(list, index, index - 1)));
 		menu.add(menuItem("Move right", () -> reorder(list, index, index + 1)));
 		menu.show(e.getComponent(), e.getX(), e.getY());

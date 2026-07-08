@@ -9,8 +9,10 @@ import java.awt.RenderingHints;
 import java.awt.image.BufferedImage;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.HashSet;
 import java.util.List;
 import java.util.Map;
+import java.util.Set;
 import javax.inject.Inject;
 import javax.swing.SwingUtilities;
 import net.runelite.api.Client;
@@ -452,10 +454,11 @@ public class RegearPlugin extends Plugin
 				withdrawn.put(e.getKey(), w);
 			}
 		}
+		final Set<Integer> worn = equippedIds();
 		boolean changed = false;
 		for (RegearList list : data.lists)
 		{
-			if (list != null && list.enabled && reconcile(list, new HashMap<>(withdrawn)))
+			if (list != null && list.enabled && reconcile(list, new HashMap<>(withdrawn), worn))
 			{
 				changed = true;
 			}
@@ -463,12 +466,48 @@ public class RegearPlugin extends Plugin
 		return changed;
 	}
 
+	private Set<Integer> equippedIds()
+	{
+		final Set<Integer> ids = new HashSet<>();
+		final ItemContainer eq = client.getItemContainer(InventoryID.EQUIPMENT);
+		if (eq != null)
+		{
+			for (Item item : eq.getItems())
+			{
+				if (item.getId() >= 0)
+				{
+					ids.add(item.getId());
+				}
+			}
+		}
+		return ids;
+	}
+
+	private static boolean wornCovers(RegearItem it, Set<Integer> worn)
+	{
+		if (worn.contains(it.id))
+		{
+			return true;
+		}
+		if (it.alts != null)
+		{
+			for (int alt : it.alts)
+			{
+				if (worn.contains(alt))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
 	/**
 	 * Point each lane of a list at the first item in its column that has not yet been withdrawn,
 	 * consuming {@code avail} (the withdrawn multiset) greedily in list order. Because it is derived
 	 * from what you actually hold, the sequence self-corrects on any misclick or double-withdraw.
 	 */
-	private boolean reconcile(RegearList list, Map<Integer, Integer> avail)
+	private boolean reconcile(RegearList list, Map<Integer, Integer> avail, Set<Integer> worn)
 	{
 		list.ensureLanes();
 		final int n = list.items.size();
@@ -478,9 +517,16 @@ public class RegearPlugin extends Plugin
 			final RegearItem it = list.items.get(i);
 			final int req = Math.max(1, it.quantity);
 			int got = 0;
-			while (got < req && consume(avail, it))
+			if (it.skipIfWorn && wornCovers(it, worn))
 			{
-				got++;
+				got = req; // you are wearing it -- treat as satisfied, do not show it
+			}
+			else
+			{
+				while (got < req && consume(avail, it))
+				{
+					got++;
+				}
 			}
 			satisfied[i] = got;
 		}
