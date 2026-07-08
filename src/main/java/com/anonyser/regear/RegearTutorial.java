@@ -12,20 +12,23 @@ import java.util.List;
 class RegearTutorial
 {
 	static final int ANCHOR_SLOT = 9; // col 1, row 1 -- leaves room for the widest pattern
+	static final int FULL_INVENTORY = 28; // slots a full-inventory setup fills (for the rotating demo step)
 
 	static final class Step
 	{
 		final String title;
 		final String instruction;
 		final PatternPreset pattern; // null = the closing notes step
-		final int count;
+		final int count;             // boxes shown per round (the visible window)
+		final int total;             // items cleared across all rounds; == count for single-round steps
 
-		Step(String title, String instruction, PatternPreset pattern, int count)
+		Step(String title, String instruction, PatternPreset pattern, int count, int total)
 		{
 			this.title = title;
 			this.instruction = instruction;
 			this.pattern = pattern;
 			this.count = count;
+			this.total = total;
 		}
 	}
 
@@ -33,7 +36,8 @@ class RegearTutorial
 	private List<Integer> items = new ArrayList<>();
 	private boolean gearMode;
 	private int stepIndex;
-	private int clicked; // green boxes clicked so far in the current step
+	private int clicked; // green boxes clicked so far in the current round
+	private int cleared; // items cleared in earlier rounds of the current (rotating) step
 
 	/** Build the step list from the example items. Needs at least 2 items to show anything useful. */
 	void start(boolean gearMode, List<Integer> exampleItems)
@@ -43,6 +47,7 @@ class RegearTutorial
 		steps.clear();
 		stepIndex = 0;
 		clicked = 0;
+		cleared = 0;
 		final int n = items.size();
 		if (n < 2)
 		{
@@ -51,17 +56,22 @@ class RegearTutorial
 		final String kind = gearMode ? "Gear setup" : "Inventory setup";
 		if (n >= 3)
 		{
+			final int z = Math.min(4, n);
 			steps.add(new Step(kind + " — Z pattern",
-				"Click the green boxes 1 to " + Math.min(4, n) + " in order.", PatternPreset.Z, Math.min(4, n)));
+				"Click the green boxes 1 to " + z + " in order.", PatternPreset.Z, z, z));
 			steps.add(new Step("Single spot",
-				"One slot: you click the same spot and it advances to the next item.", PatternPreset.SINGLE, 1));
+				"One slot: you click the same spot and it advances to the next item.", PatternPreset.SINGLE, 1, 1));
+			final int v = Math.min(3, n);
 			steps.add(new Step("Vertical line",
-				"A straight column, top to bottom.", PatternPreset.VERTICAL, Math.min(3, n)));
+				"A straight column, top to bottom.", PatternPreset.VERTICAL, v, v));
 		}
+		// Full inventory: a 6-slot window keeps rotating until all 28 inventory slots are filled, exactly
+		// like a real full-inventory setup. The example items cycle to stand in for a whole inventory.
+		final int fullWindow = Math.min(6, n);
 		steps.add(new Step("Full inventory — Z pattern",
-			"A whole setup rotates through these slots. Click the green boxes in order.",
-			PatternPreset.Z, Math.min(6, n)));
-		steps.add(new Step("Done!", null, null, 0));
+			"Click 1 to " + fullWindow + " in order, then keep going until it's full.",
+			PatternPreset.Z, fullWindow, FULL_INVENTORY));
+		steps.add(new Step("Done!", null, null, 0, 0));
 	}
 
 	boolean hasSteps()
@@ -94,6 +104,26 @@ class RegearTutorial
 		return steps.size();
 	}
 
+	/** Progress within a rotating step: items cleared so far, including this round's clicks. */
+	int stepProgress()
+	{
+		return cleared + clicked;
+	}
+
+	/** Total items the current step clears; equals the visible window for single-round steps. */
+	int stepTotal()
+	{
+		final Step s = current();
+		return s == null ? 0 : s.total;
+	}
+
+	/** True when the current step rotates through more items than fit in its visible window. */
+	boolean isRotatingStep()
+	{
+		final Step s = current();
+		return s != null && s.pattern != null && s.total > offsets().size();
+	}
+
 	boolean isNotesStep()
 	{
 		final Step s = current();
@@ -112,7 +142,18 @@ class RegearTutorial
 
 	int boxCount()
 	{
-		return offsets().size();
+		return Math.min(offsets().size(), roundRemaining());
+	}
+
+	/** Items still to clear in the current step (its rotation); 0 on the notes step. */
+	private int roundRemaining()
+	{
+		final Step s = current();
+		if (s == null || s.pattern == null)
+		{
+			return 0;
+		}
+		return s.total - cleared;
 	}
 
 	int slotForBox(int k)
@@ -130,16 +171,16 @@ class RegearTutorial
 
 	int itemForBox(int k)
 	{
-		return items.isEmpty() ? -1 : items.get(k % items.size());
+		return items.isEmpty() ? -1 : items.get((cleared + k) % items.size());
 	}
 
-	/** The next box the player is expected to click (0-based), or -1 when the step is complete. */
+	/** The next box the player is expected to click (0-based), or -1 when the round is complete. */
 	int expectedBox()
 	{
 		return clicked < boxCount() ? clicked : -1;
 	}
 
-	/** Register a click on box k. In-order clicks advance the step; the notes step finishes on any click. */
+	/** Register a click on box k. In-order clicks advance the round; the notes step finishes on any click. */
 	void clickBox(int k)
 	{
 		final Step s = current();
@@ -155,10 +196,17 @@ class RegearTutorial
 		if (k == clicked)
 		{
 			clicked++;
-			if (clicked >= boxCount())
+			final int boxes = boxCount();
+			if (clicked >= boxes)
 			{
-				stepIndex++;
+				// Round done: clear this window, then roll to the next window or finish the step.
+				cleared += boxes;
 				clicked = 0;
+				if (cleared >= s.total)
+				{
+					stepIndex++;
+					cleared = 0;
+				}
 			}
 		}
 	}
@@ -169,5 +217,6 @@ class RegearTutorial
 		items.clear();
 		stepIndex = 0;
 		clicked = 0;
+		cleared = 0;
 	}
 }

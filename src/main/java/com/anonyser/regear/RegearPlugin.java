@@ -20,13 +20,9 @@ import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemContainer;
 import net.runelite.api.MenuAction;
-import net.runelite.api.MenuEntry;
-import net.runelite.api.ScriptID;
 import net.runelite.api.events.GameTick;
 import net.runelite.api.events.ItemContainerChanged;
 import net.runelite.api.events.MenuEntryAdded;
-import net.runelite.api.events.MenuOptionClicked;
-import net.runelite.api.events.ScriptPreFired;
 import net.runelite.api.events.WidgetClosed;
 import net.runelite.api.events.WidgetLoaded;
 import net.runelite.api.gameval.InterfaceID;
@@ -39,7 +35,9 @@ import net.runelite.client.game.ItemManager;
 import net.runelite.client.game.ItemStats;
 import net.runelite.client.input.MouseManager;
 import net.runelite.client.plugins.Plugin;
+import net.runelite.client.plugins.PluginDependency;
 import net.runelite.client.plugins.PluginDescriptor;
+import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.ui.ClientToolbar;
 import net.runelite.client.ui.NavigationButton;
 import net.runelite.client.ui.overlay.OverlayManager;
@@ -58,6 +56,7 @@ import org.slf4j.LoggerFactory;
 	description = "Show the gear or inventory you set in fixed bank slots to withdraw in order (display only)",
 	tags = {"bank", "regear", "gear", "switch", "setup", "inventory", "pvp", "filter", "withdraw"}
 )
+@PluginDependency(BankTagsPlugin.class)
 public class RegearPlugin extends Plugin
 {
 	private static final Logger log = LoggerFactory.getLogger(RegearPlugin.class);
@@ -159,6 +158,7 @@ public class RegearPlugin extends Plugin
 	{
 		client.setInventoryDragDelay(DEFAULT_DRAG_DELAY);
 		bankController.setTutorialActive(false);
+		clientThread.invoke(bankController::unregister);
 		mouseManager.unregisterMouseListener(tutorialMouse);
 		overlayManager.remove(idOverlay);
 		overlayManager.remove(bankOverlay);
@@ -207,6 +207,16 @@ public class RegearPlugin extends Plugin
 		{
 			bankController.getTutorial().reset();
 		}
+		// Turning the tutorial on releases the Regear bank filter (so the full bank shows); turning it
+		// off re-applies it. applyLayout reads the tutorial flag and does the right thing.
+		if (bankOpen)
+		{
+			clientThread.invoke(() ->
+			{
+				bankController.applyLayout(tick);
+				SwingUtilities.invokeLater(this::refreshWarnings);
+			});
+		}
 	}
 
 	/** Read whatever bank is open and pick example items: gear if 3+ equippable, else any items. */
@@ -233,18 +243,16 @@ public class RegearPlugin extends Plugin
 					{
 						equip.add(id);
 					}
-					if (any.size() >= 24)
+					if (any.size() >= 28)
 					{
 						break;
 					}
 				}
 			}
 			final boolean gear = equip.size() >= 3;
+			// Pass the full set (up to 28): the small steps use only the first few, while the
+			// full-inventory step cycles through them to stand in for a whole inventory's worth.
 			final List<Integer> examples = new ArrayList<>(gear ? equip : any);
-			if (examples.size() > 6)
-			{
-				examples.subList(6, examples.size()).clear();
-			}
 			bankController.getTutorial().start(gear, examples);
 		});
 	}
@@ -307,6 +315,14 @@ public class RegearPlugin extends Plugin
 		{
 			bankController.setTutorialActive(false);
 			bankController.getTutorial().reset();
+			if (bankOpen)
+			{
+				clientThread.invoke(() ->
+				{
+					bankController.applyLayout(tick);
+					SwingUtilities.invokeLater(this::refreshWarnings);
+				});
+			}
 		}
 	}
 
@@ -373,16 +389,6 @@ public class RegearPlugin extends Plugin
 	// --- Events ------------------------------------------------------------------------------------
 
 	@Subscribe
-	public void onScriptPreFired(ScriptPreFired event)
-	{
-		if (event.getScriptId() == ScriptID.BANKMAIN_FINISHBUILDING)
-		{
-			bankController.applyLayout(tick);
-			SwingUtilities.invokeLater(this::refreshWarnings);
-		}
-	}
-
-	@Subscribe
 	public void onGameTick(GameTick event)
 	{
 		// Advance the tick clock, and when a lane's hold window ends re-apply so its next item
@@ -422,7 +428,9 @@ public class RegearPlugin extends Plugin
 				}
 			}
 			reconcileAll();
+			bankController.applyLayout(tick);
 			applyDragDelay();
+			SwingUtilities.invokeLater(this::refreshWarnings);
 			if (bankController.isTutorialActive() && !bankController.getTutorial().hasSteps())
 			{
 				startTutorialContent();
@@ -520,38 +528,6 @@ public class RegearPlugin extends Plugin
 			.setTarget(event.getTarget())
 			.setType(MenuAction.RUNELITE)
 			.onClick(e -> SwingUtilities.invokeLater(() -> panel.addItemToSelected(id)));
-	}
-
-	@Subscribe
-	public void onMenuOptionClicked(MenuOptionClicked event)
-	{
-		// While Regear is filtering the bank, a shown item may sit on a widget we repurposed to
-		// display a duplicate. Route the click to that item's real bank slot so the withdraw works,
-		// exactly as Bank Tag Layouts does. A no-op for an item already on its own widget.
-		if (!bankController.isManaging())
-		{
-			return;
-		}
-		final MenuEntry menu = event.getMenuEntry();
-		if (menu.getParam1() != InterfaceID.Bankmain.ITEMS)
-		{
-			return;
-		}
-		final Widget w = menu.getWidget();
-		if (w == null || w.getItemId() <= -1)
-		{
-			return;
-		}
-		final ItemContainer bank = client.getItemContainer(InventoryID.BANK);
-		if (bank == null)
-		{
-			return;
-		}
-		final int idx = bank.find(w.getItemId());
-		if (idx > -1 && menu.getParam0() != idx)
-		{
-			menu.setParam0(idx);
-		}
 	}
 
 	// --- Rotation / detection ----------------------------------------------------------------------

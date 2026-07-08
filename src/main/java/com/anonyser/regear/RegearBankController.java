@@ -1,7 +1,6 @@
 package com.anonyser.regear;
 
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -10,23 +9,33 @@ import java.util.Set;
 import javax.inject.Inject;
 import javax.inject.Singleton;
 import net.runelite.api.Client;
-import net.runelite.api.gameval.InterfaceID;
-import net.runelite.api.gameval.VarClientID;
-import net.runelite.api.widgets.ItemQuantityMode;
-import net.runelite.api.widgets.Widget;
+import net.runelite.api.InventoryID;
+import net.runelite.api.Item;
+import net.runelite.api.ItemContainer;
+import net.runelite.client.game.ItemManager;
+import net.runelite.client.plugins.banktags.BankTagsPlugin;
+import net.runelite.client.plugins.banktags.BankTagsService;
+import net.runelite.client.plugins.banktags.TagManager;
+import net.runelite.client.plugins.banktags.tabs.Layout;
+import net.runelite.client.plugins.banktags.tabs.LayoutManager;
 
 /**
- * The bank layout engine. When the bank finishes (re)building its item icons, this hides every item
- * and then moves the active target of each enabled list into that list's configured slot, so the
- * bank shows only the small set of items Regear is guiding you toward, in fixed positions. This is
- * the same widget-repositioning technique RuneLite's own Bank Tag Layouts use, reimplemented here so
- * Regear is fully self-contained and needs no other plugin. It is display-only: it moves and hides
- * icons, it never clicks or withdraws.
+ * The bank layout engine. When the bank is open, this resolves the active target of each enabled list
+ * into a fixed bank slot and drives RuneLite's core Bank Tags layout system to show only those items,
+ * each in its configured position, so the same few bank slots can be clicked in rhythm.
+ *
+ * <p>Rather than repositioning bank widgets itself, Regear feeds core: it registers a live filter
+ * predicate (a {@link net.runelite.client.plugins.banktags.BankTag}) for a private hidden tag, builds a
+ * {@link Layout} mapping each active item to its slot, hands it to core's {@link LayoutManager} with
+ * {@link LayoutManager#saveLayout(Layout)}, and opens the tag via
+ * {@link BankTagsPlugin#openTag(String, Layout, int)} so core filters and lays the bank out live. It is
+ * display-only: it never clicks or withdraws; the player does every click.</p>
  */
 @Singleton
 class RegearBankController
 {
-	// Bank grid geometry, matching RuneLite core (BankTagsPlugin): 8 columns of 36x32 icons.
+	// Bank grid geometry, matching RuneLite core (BankTagsPlugin): 8 columns of 36x32 icons. Still used
+	// by the overlays and tutorial to draw at the slots core positions items in.
 	static final int COLUMNS = 8;
 	static final int ITEM_WIDTH = 36;
 	static final int ITEM_HEIGHT = 32;
@@ -35,22 +44,24 @@ class RegearBankController
 	static final int START_X = 51;
 	static final int START_Y = 0;
 
+	// A private, hidden bank-tag name Regear drives. Chosen to be unlikely to collide with a real user
+	// tag; it never appears in the tag bar (setHidden) and is filtered by a registered predicate, so no
+	// per-item tags are ever written to the user's config.
+	private static final String REGEAR_TAG = "regearguide";
+
 	/** One positioned (or missing) active item, recorded for the overlay to annotate. */
 	static final class Placement
 	{
 		final String listName;
-		RegearList list;     // the list this placement belongs to (for click-accurate advancing)
+		RegearList list;     // the list this placement belongs to
 		final int lane;      // 0-based lane index within its list
 		final int slot;      // absolute bank slot
 		final RegearItem item;
 		RegearItem next;     // what this lane advances to next, for the preview; may be null
-		Widget widget;       // the bank item widget moved here, or null if missing
-		boolean missing;
-		boolean duplicate;   // a second copy that could not get a spare widget to show it
-		boolean synthetic;   // shown on a spare widget repurposed to display a repeated item
+		boolean missing;     // the active item (and any "or" alternative) is not in the bank
 		int withdrawn;       // amount of this item withdrawn so far toward its required quantity
 		int required;        // quantity to withdraw before the lane advances (>=1)
-		int shownId;         // the id actually shown/withdrawn (primary, or an "or" alternative)
+		int shownId;         // the canonical id actually shown/withdrawn (primary, or an "or" alternative)
 
 		Placement(String listName, int lane, int slot, RegearItem item)
 		{
@@ -63,23 +74,33 @@ class RegearBankController
 
 	private final Client client;
 	private final RegearConfig config;
+	private final ItemManager itemManager;
+	private final BankTagsPlugin bankTags;
+	private final TagManager tagManager;
+	private final LayoutManager layoutManager;
 
 	private RegearData data;
 	private final List<Placement> placements = new ArrayList<>();
 	private final List<String> missingLabels = new ArrayList<>();
 	private boolean overlapDetected;
-	private boolean managingBank;
 	private boolean tutorialActive;
 	private final RegearTutorial tutorial = new RegearTutorial();
-	// Widgets we repurposed to show a duplicate item, mapped to their original item id so we can
-	// restore them (and rebuild the item map cleanly) on the next apply.
-	private final Map<Widget, Integer> synthOriginal = new HashMap<>();
+
+	// The set of (canonical) item ids the bank should currently show. The registered filter predicate
+	// reads this live, so advancing the window is just a matter of updating this set and re-opening.
+	private final Set<Integer> windowIds = new HashSet<>();
+	private boolean tagRegistered;
 
 	@Inject
-	RegearBankController(Client client, RegearConfig config)
+	RegearBankController(Client client, RegearConfig config, ItemManager itemManager,
+		BankTagsPlugin bankTags, TagManager tagManager, LayoutManager layoutManager)
 	{
 		this.client = client;
 		this.config = config;
+		this.itemManager = itemManager;
+		this.bankTags = bankTags;
+		this.tagManager = tagManager;
+		this.layoutManager = layoutManager;
 	}
 
 	void setData(RegearData data)
@@ -92,24 +113,6 @@ class RegearBankController
 		return placements;
 	}
 
-	/** The placement currently shown on the given bank widget, or null. Used to advance the exact
-	 *  lane whose slot was clicked, so several copies of one item stay counted correctly. */
-	Placement placementForWidget(Widget w)
-	{
-		if (w == null)
-		{
-			return null;
-		}
-		for (Placement p : placements)
-		{
-			if (p.widget == w)
-			{
-				return p;
-			}
-		}
-		return null;
-	}
-
 	List<String> getMissingLabels()
 	{
 		return missingLabels;
@@ -118,12 +121,6 @@ class RegearBankController
 	boolean isOverlapDetected()
 	{
 		return overlapDetected;
-	}
-
-	/** True while Regear is actively filtering/positioning the bank (so clicks should be remapped). */
-	boolean isManaging()
-	{
-		return managingBank;
 	}
 
 	boolean isTutorialActive()
@@ -152,10 +149,10 @@ class RegearBankController
 	}
 
 	/**
-	 * Rebuild the bank display for the current lists. Runs on the client thread. Hides only the items
-	 * that are not current targets, and moves a target only when its slot actually changes, so
-	 * repeated calls on an unchanged bank do no work and never flicker. Leaves the bank untouched when
-	 * Regear has nothing to manage.
+	 * Recompute the active targets and drive core to filter + lay the bank out. Runs on the client
+	 * thread. Registers the hidden Regear tag on first use. When nothing should be managed (disabled,
+	 * tutorial running, or no enabled list has an active target) it releases the tag so the bank returns
+	 * to normal.
 	 *
 	 * @param currentTick current game tick, used to evaluate each lane's anti-spam hold
 	 */
@@ -164,57 +161,31 @@ class RegearBankController
 		placements.clear();
 		missingLabels.clear();
 		overlapDetected = false;
-		managingBank = false;
 
-		if (data == null || !config.applyInBank())
+		if (data == null || !config.applyInBank() || tutorialActive)
+		{
+			release();
+			return;
+		}
+
+		final ItemContainer bank = client.getItemContainer(InventoryID.BANK);
+		if (bank == null)
 		{
 			return;
 		}
 
-		final Widget container = client.getWidget(InterfaceID.Bankmain.ITEMS);
-		if (container == null)
+		// Canonical ids currently in the bank, for the "or"-alternative pick and the missing check.
+		final Set<Integer> bankIds = new HashSet<>();
+		for (Item it : bank.getItems())
 		{
-			return;
-		}
-		final Widget[] children = container.getDynamicChildren();
-		if (children == null || children.length == 0)
-		{
-			return;
-		}
-
-		// Restore any widgets we repurposed as duplicate copies last time, so the item map below is
-		// built from the bank's real contents (and their original items return when no longer needed).
-		if (!synthOriginal.isEmpty())
-		{
-			for (Map.Entry<Widget, Integer> e : synthOriginal.entrySet())
+			if (it.getId() >= 0)
 			{
-				if (e.getKey() != null)
-				{
-					e.getKey().setItemId(e.getValue());
-				}
+				bankIds.add(itemManager.canonicalize(it.getId()));
 			}
-			synthOriginal.clear();
 		}
 
-		// Which item id currently sits in each usable bank widget (first widget wins per id).
-		final Map<Integer, Widget> byItemId = new LinkedHashMap<>();
-		final List<Widget> itemWidgets = new ArrayList<>();
-		for (Widget w : children)
-		{
-			if (w == null || w.getItemId() == -1)
-			{
-				continue;
-			}
-			itemWidgets.add(w);
-			byItemId.putIfAbsent(w.getItemId(), w);
-		}
-		if (itemWidgets.isEmpty())
-		{
-			return;
-		}
-
-		// Resolve the active target of every enabled list into a slot, tracking cross-list overlap.
-		// A held lane (just withdrawn) still keeps the bank filtered but leaves its slot empty.
+		// Resolve the active target of every enabled list into a slot, tracking cross-list overlap. A
+		// held lane (just withdrawn) still keeps the bank filtered but leaves its slot empty.
 		final Map<Integer, Placement> bySlot = new LinkedHashMap<>();
 		boolean managing = false;
 		for (RegearList list : data.lists)
@@ -254,139 +225,93 @@ class RegearBankController
 
 		if (!managing)
 		{
-			// No enabled list has anything to manage: leave the bank exactly as the game built it.
+			// No enabled list has anything to manage: hand the bank back to the game.
+			release();
 			return;
 		}
-		managingBank = true;
 
-		// Give the first lane wanting an item that item's own widget; a later lane wanting the SAME
-		// item is deferred so we can repurpose a spare widget to show a second copy of it.
-		final Set<Widget> used = new HashSet<>();
-		final List<Placement> needDuplicate = new ArrayList<>();
-		int maxRow = 0;
+		// Build the filter set + the layout from the resolved placements.
+		final Layout layout = new Layout(REGEAR_TAG);
+		final Set<Integer> newWindow = new HashSet<>();
 		for (Placement p : bySlot.values())
 		{
-			maxRow = Math.max(maxRow, p.slot / COLUMNS);
 			// Show whichever of the item's ids (primary, then "or" alternatives) is actually in the bank.
-			int shownId = p.item.id;
-			Widget w = byItemId.get(shownId);
-			if (w == null && p.item.alts != null)
+			int shownId = -1;
+			final int primary = itemManager.canonicalize(p.item.id);
+			if (bankIds.contains(primary))
+			{
+				shownId = primary;
+			}
+			else if (p.item.alts != null)
 			{
 				for (int alt : p.item.alts)
 				{
-					final Widget aw = byItemId.get(alt);
-					if (aw != null)
+					final int c = itemManager.canonicalize(alt);
+					if (bankIds.contains(c))
 					{
-						w = aw;
-						shownId = alt;
+						shownId = c;
 						break;
 					}
 				}
 			}
-			p.shownId = shownId;
-			if (w == null)
+			if (shownId < 0)
 			{
 				p.missing = true;
+				p.shownId = primary;
 				missingLabels.add(missingLabel(p));
 				placements.add(p);
 				continue;
 			}
-			if (used.contains(w))
-			{
-				needDuplicate.add(p);
-				placements.add(p);
-				continue;
-			}
-			used.add(w);
-			p.widget = w;
+			p.shownId = shownId;
+			layout.setItemAtPos(shownId, p.slot);
+			newWindow.add(shownId);
 			placements.add(p);
 		}
 
-		boolean changed = false;
+		// Update the live filter set, then drive core to filter + lay out the bank. openTag relayouts
+		// immediately, so the window advances live as items are withdrawn.
+		windowIds.clear();
+		windowIds.addAll(newWindow);
+		ensureTagRegistered();
+		// Store the layout on the tag through core's LayoutManager, then open it. openTag applies the same
+		// layout immediately (relayout) so the window advances live as items are withdrawn.
+		layoutManager.saveLayout(layout);
+		bankTags.openTag(REGEAR_TAG, layout, BankTagsService.OPTION_HIDE_TAG_NAME);
+	}
 
-		// Repurpose a spare (non-target) bank widget to display each duplicate copy, so the same item
-		// can appear in more than one slot. Clicks on it are routed to the item's real bank slot by
-		// the plugin's menu handler (bank.find), so the withdraw still works.
-		if (!needDuplicate.isEmpty())
+	/** Register the hidden filter predicate once. The predicate reads {@link #windowIds} live. */
+	private void ensureTagRegistered()
+	{
+		if (!tagRegistered)
 		{
-			final List<Widget> spares = new ArrayList<>();
-			for (Widget w : itemWidgets)
-			{
-				if (!used.contains(w))
-				{
-					spares.add(w);
-				}
-			}
-			int si = 0;
-			for (Placement p : needDuplicate)
-			{
-				final Widget spare = si < spares.size() ? spares.get(si++) : null;
-				if (spare == null)
-				{
-					p.duplicate = true; // no spare widget available to show this copy
-					continue;
-				}
-				final Widget real = byItemId.get(p.shownId);
-				synthOriginal.put(spare, spare.getItemId());
-				spare.setItemId(p.shownId);
-				spare.setItemQuantity(real != null ? real.getItemQuantity() : 1);
-				spare.setItemQuantityMode(ItemQuantityMode.STACKABLE);
-				used.add(spare);
-				p.widget = spare;
-				p.synthetic = true;
-				changed = true;
-			}
+			tagManager.registerTag(REGEAR_TAG, id -> windowIds.contains(itemManager.canonicalize(id)));
+			tagManager.setHidden(REGEAR_TAG, true);
+			tagRegistered = true;
 		}
+	}
 
-		// Hide non-target items and position targets, touching only widgets whose state actually
-		// changes, so redundant re-applies are no-ops (this is what stops the flicker).
-		for (Widget w : itemWidgets)
+	/** Close our tag if it is the one currently open, returning the bank to its normal view. */
+	private void release()
+	{
+		if (REGEAR_TAG.equals(bankTags.getActiveTag()))
 		{
-			if (!used.contains(w) && !w.isHidden())
-			{
-				w.setHidden(true);
-				changed = true;
-			}
+			bankTags.closeBankTag();
 		}
-		for (Placement p : placements)
-		{
-			final Widget w = p.widget;
-			if (w == null)
-			{
-				continue;
-			}
-			final int x = slotToX(p.slot);
-			final int y = slotToY(p.slot);
-			if (p.synthetic || w.isHidden() || w.getOriginalX() != x || w.getOriginalY() != y)
-			{
-				w.setOriginalX(x);
-				w.setOriginalY(y);
-				w.setHidden(false);
-				w.revalidate();
-				changed = true;
-			}
-		}
+	}
 
-		if (!changed)
+	/** Release the bank and drop the registered tag. Called on shutdown, on the client thread. */
+	void unregister()
+	{
+		release();
+		if (tagRegistered)
 		{
-			return;
+			tagManager.unregisterTag(REGEAR_TAG);
+			layoutManager.removeLayout(REGEAR_TAG);
+			tagRegistered = false;
 		}
-
-		// Keep the placed rows in view and reflow once, only when something actually moved.
-		if (container.getScrollY() != 0)
-		{
-			container.setScrollY(0);
-		}
-		if (client.getVarcIntValue(VarClientID.BANK_SCROLLPOS) != 0)
-		{
-			client.setVarcIntValue(VarClientID.BANK_SCROLLPOS, 0);
-		}
-		final int neededHeight = (maxRow + 1) * (ITEM_HEIGHT + Y_PADDING);
-		if (container.getScrollHeight() < neededHeight)
-		{
-			container.setScrollHeight(neededHeight);
-		}
-		container.revalidate();
+		windowIds.clear();
+		placements.clear();
+		missingLabels.clear();
 	}
 
 	private static String missingLabel(Placement p)

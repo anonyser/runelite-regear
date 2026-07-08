@@ -72,26 +72,23 @@ class RegearBankOverlay extends Overlay
 		}
 		final Point containerLoc = container.getCanvasLocation();
 
+		if (containerLoc == null)
+		{
+			return null;
+		}
 		graphics.setFont(FontManager.getRunescapeSmallFont());
 		for (RegearBankController.Placement p : controller.getPlacements())
 		{
 			if (p.missing)
 			{
-				if (config.highlightMissing() && containerLoc != null)
+				if (config.highlightMissing())
 				{
 					drawMissing(graphics, slotRect(containerLoc, p.slot));
 				}
 				continue;
 			}
-			if (p.duplicate || p.widget == null)
-			{
-				continue;
-			}
-			final Rectangle b = p.widget.getBounds();
-			if (b == null)
-			{
-				continue;
-			}
+			// Core positions the item; draw at the slot geometry it uses (grid constants are identical).
+			final Rectangle b = slotRect(containerLoc, p.slot);
 			if (config.highlightActive())
 			{
 				graphics.setColor(config.activeColor());
@@ -149,7 +146,7 @@ class RegearBankOverlay extends Overlay
 		if (!t.hasSteps())
 		{
 			drawStepBanner(g, cb, "Add a few items to your bank",
-				"The tutorial needs at least two items to demonstrate.");
+				"The tutorial needs at least two items to demonstrate.", null);
 			return;
 		}
 		if (t.isNotesStep())
@@ -162,7 +159,8 @@ class RegearBankOverlay extends Overlay
 		{
 			return;
 		}
-		drawStepBanner(g, cb, "(" + t.stepNumber() + "/" + t.stepCount() + ")  " + step.title, step.instruction);
+		final String progress = t.isRotatingStep() ? t.stepProgress() + " / " + t.stepTotal() : null;
+		drawStepBanner(g, cb, "(" + t.stepNumber() + "/" + t.stepCount() + ")  " + step.title, step.instruction, progress);
 
 		final boolean pulse = System.currentTimeMillis() / 350 % 2 == 0;
 		final int expected = t.expectedBox();
@@ -195,7 +193,7 @@ class RegearBankOverlay extends Overlay
 		}
 	}
 
-	private void drawStepBanner(Graphics2D g, Rectangle cb, String title, String instruction)
+	private void drawStepBanner(Graphics2D g, Rectangle cb, String title, String instruction, String progress)
 	{
 		final int x = cb.x;
 		final int y = cb.y - 44;
@@ -209,6 +207,13 @@ class RegearBankOverlay extends Overlay
 		g.setFont(FontManager.getRunescapeBoldFont());
 		g.setColor(Color.WHITE);
 		g.drawString(title, x + 8, y + 16);
+		if (progress != null)
+		{
+			// Right-aligned on the title row so it never pushes the instruction out of the box.
+			final int pw = g.getFontMetrics().stringWidth(progress);
+			g.setColor(new Color(140, 255, 140));
+			g.drawString(progress, x + w - pw - 10, y + 16);
+		}
 		if (instruction != null)
 		{
 			g.setFont(FontManager.getRunescapeSmallFont());
@@ -226,23 +231,42 @@ class RegearBankOverlay extends Overlay
 		g.setColor(new Color(0, 200, 60));
 		g.drawRoundRect(cb.x + 2, cb.y + 2, cb.width - 4, cb.height - 4, 10, 10);
 
-		g.setFont(FontManager.getRunescapeBoldFont());
 		final int x = cb.x + 12;
-		int y = cb.y + 30;
-		shadow(g, "You're ready! A few tips:", x, y, new Color(0, 255, 90));
-		final String[] notes = {
-			"- Right-click a bank / inventory item -> Add to Regear.",
-			"- Add by item id, or get the Item ID and Lookup plugin.",
-			"- Patterns: Single, Vertical, Z, or build your own Custom.",
-			"- Enable a list, open the bank, click the green slots.",
+		int y = cb.y + 24;
+		g.setFont(FontManager.getRunescapeBoldFont());
+		shadow(g, "You're ready. Here's how to build one:", x, y, new Color(0, 255, 90));
+
+		g.setFont(FontManager.getRunescapeSmallFont());
+		final String[] steps = {
+			"1.  Open the Regear panel (icon on the right) and click New.",
+			"2.  Name it, then add items: right-click an item -> Add to Regear.",
+			"3.  Set how many slots show, and a pattern: Z, Vertical, Single or Custom.",
+			"4.  Enable it (or Enable all), open the bank, click the green slots in order.",
 		};
-		for (String note : notes)
+		for (String s : steps)
 		{
-			y += 24;
-			shadow(g, note, x, y, Color.WHITE);
+			y += 20;
+			shadow(g, s, x, y, Color.WHITE);
 		}
-		y += 32;
+
+		y += 26;
+		g.setFont(FontManager.getRunescapeBoldFont());
+		shadow(g, "Good to know:", x, y, new Color(0, 255, 90));
+		g.setFont(FontManager.getRunescapeSmallFont());
+		final String[] tips = {
+			"- When a list finishes: Stop, Loop, or reset on bank close / inventory change.",
+			"- Reset all lists, or reset a single list, whenever you want.",
+			"- Hide this tutorial from the panel any time.",
+		};
+		for (String tip : tips)
+		{
+			y += 20;
+			shadow(g, tip, x, y, new Color(210, 210, 210));
+		}
+
+		y += 30;
 		final boolean on = System.currentTimeMillis() / 400 % 2 == 0;
+		g.setFont(FontManager.getRunescapeBoldFont());
 		shadow(g, "Click anywhere to finish the tutorial", x, y,
 			on ? new Color(255, 95, 95) : new Color(255, 190, 190));
 	}
