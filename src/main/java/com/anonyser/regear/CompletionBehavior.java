@@ -4,7 +4,7 @@ package com.anonyser.regear;
  * What a Regear lane does once it has advanced past the end of its list.
  * A list may override the global default; {@link #STOP} is the default.
  */
-enum CompletionBehavior
+public enum CompletionBehavior
 {
 	/** Leave finished lanes empty; nothing more is shown. */
 	STOP("Stop at end"),

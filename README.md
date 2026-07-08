@@ -31,6 +31,8 @@ positions, highlights and tracks. You perform every click.
 ./gradlew build              # compile + unit tests
 ```
 
-Debug logging goes to `~/.runelite/regear-dev.log` when the plugin's "Debug logging" config is on.
+The dev client (`runClient`) streams Regear events (`[life]`, `[bank]`, `[rotate]`) to
+`~/.runelite/regear-dev.log` automatically; the desktop launcher opens a window that tails it live.
+These are `log.debug` lines, so they never appear in a normal (INFO-level) Hub client.
 
 Display-only; no gameplay automation.
