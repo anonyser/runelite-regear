@@ -178,13 +178,12 @@ class RegearPanel extends PluginPanel
 
 	private JComponent enableAllRow()
 	{
-		final JPanel row = new JPanel(new GridLayout(1, 2, 3, 0));
+		final JPanel row = new JPanel(new FlowLayout(FlowLayout.LEFT, 3, 0));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
-		final JButton on = compact(button("Enable all", e -> setAllEnabled(true)));
+		row.add(compact(button("Enable all", e -> setAllEnabled(true))));
 		final JButton off = compact(button("Disable all", e -> setAllEnabled(false)));
 		off.setToolTipText("Disable every list so the bank is unfiltered (easier to search while adding items)");
-		row.add(on);
 		row.add(off);
 		return row;
 	}
