@@ -11,6 +11,7 @@ import javax.inject.Singleton;
 import net.runelite.api.Client;
 import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
+import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
@@ -200,14 +201,25 @@ class RegearBankController
 			return;
 		}
 
-		// Canonical ids currently in the bank, for the "or"-alternative pick and the missing check.
+		// Canonical ids of the REAL items in the bank, for the "or"-alternative pick and the missing
+		// check. A bank placeholder (the greyed slot with a "Release" option) must NOT count as present,
+		// or the guide keeps showing the primary and never falls back to an "or" alternative (the
+		// placeholder bug). A placeholder is either the item id at quantity 0, or a distinct placeholder
+		// item id that canonicalizes back to the real item; skip both.
 		final Set<Integer> bankIds = new HashSet<>();
 		for (Item it : bank.getItems())
 		{
-			if (it.getId() >= 0)
+			final int id = it.getId();
+			if (id < 0 || it.getQuantity() <= 0)
 			{
-				bankIds.add(itemManager.canonicalize(it.getId()));
+				continue;
 			}
+			final ItemComposition comp = itemManager.getItemComposition(id);
+			if (comp != null && comp.getPlaceholderTemplateId() != -1)
+			{
+				continue; // a bank placeholder, not a real item
+			}
+			bankIds.add(itemManager.canonicalize(id));
 		}
 
 		// Resolve the active target of every enabled list into a slot, tracking cross-list overlap. A

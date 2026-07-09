@@ -194,6 +194,27 @@ public class RegearPlugin extends Plugin
 		return config;
 	}
 
+	/** Read the current inventory's item ids in slot order (client thread), then deliver them on the EDT. */
+	void withInventoryIds(java.util.function.Consumer<List<Integer>> onEdt)
+	{
+		clientThread.invoke(() ->
+		{
+			final List<Integer> ids = new ArrayList<>();
+			final ItemContainer inv = client.getItemContainer(InventoryID.INVENTORY);
+			if (inv != null)
+			{
+				for (Item it : inv.getItems())
+				{
+					if (it.getId() > 0)
+					{
+						ids.add(it.getId());
+					}
+				}
+			}
+			SwingUtilities.invokeLater(() -> onEdt.accept(ids));
+		});
+	}
+
 	boolean isTutorialActive()
 	{
 		return bankController.isTutorialActive();

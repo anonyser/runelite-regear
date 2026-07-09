@@ -57,7 +57,7 @@ class RegearPanel extends PluginPanel
 
 	private final JComboBox<String> listSelector = new JComboBox<>();
 	private final JCheckBox enabledToggle = new JCheckBox("Enabled");
-	private final JComboBox<Integer> visibleCount = new JComboBox<>(new Integer[]{1, 2, 3, 4, 5, 6});
+	private final JComboBox<Integer> visibleCount = new JComboBox<>(visibleCounts());
 	private final JComboBox<PatternPreset> patternSelector = new JComboBox<>(PatternPreset.values());
 	private final JTextField customField = new JTextField();
 	private final JComboBox<String> completionSelector = new JComboBox<>();
@@ -82,6 +82,8 @@ class RegearPanel extends PluginPanel
 	private int pickAltFor = -1;
 	// Whether the alternative being picked/added should become the preferred (shown-first) variant.
 	private boolean pickAltPreferred;
+	// When on, clicking cells in the pattern preview builds a custom pattern in click order.
+	private boolean patternClickMode;
 
 	RegearPanel(RegearPlugin plugin, ItemManager itemManager, ClientThread clientThread)
 	{
@@ -106,7 +108,7 @@ class RegearPanel extends PluginPanel
 		content.add(labeled("Pattern", patternSelector));
 		content.add(customFieldRow());
 		content.add(vspace());
-		content.add(section("Pattern preview"));
+		content.add(patternPreviewHeader());
 		content.add(preview);
 		content.add(vspace());
 		content.add(section("Bank position"));
@@ -121,6 +123,7 @@ class RegearPanel extends PluginPanel
 		content.add(itemGrid);
 		content.add(vspace());
 		content.add(addRow());
+		content.add(addInventoryRow());
 		content.add(vspace());
 		content.add(warningsPanel);
 		content.add(vspace());
@@ -460,6 +463,117 @@ class RegearPanel extends PluginPanel
 		row.add(idField, BorderLayout.CENTER);
 		row.add(button("Add", e -> addFromField()), BorderLayout.EAST);
 		return row;
+	}
+
+	private JComponent addInventoryRow()
+	{
+		final JButton b = button("Add current inventory", e -> addInventory());
+		b.setAlignmentX(LEFT_ALIGNMENT);
+		b.setFont(FontManager.getRunescapeFont());
+		b.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		b.setToolTipText("Add every item in your current inventory to this list, in inventory order");
+		return b;
+	}
+
+	/** Header row for the pattern preview: the section label plus a "Click to set" toggle. */
+	private JComponent patternPreviewHeader()
+	{
+		final JPanel row = new JPanel(new BorderLayout(4, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 22));
+		row.add(section("Pattern preview"), BorderLayout.WEST);
+		final JCheckBox click = new JCheckBox("Click to set");
+		click.setToolTipText("Click cells in the preview to build the pattern in the order you click");
+		click.addActionListener(e ->
+		{
+			patternClickMode = click.isSelected();
+			preview.repaint();
+		});
+		row.add(click, BorderLayout.EAST);
+		return row;
+	}
+
+	private static Integer[] visibleCounts()
+	{
+		final Integer[] a = new Integer[28];
+		for (int i = 0; i < 28; i++)
+		{
+			a[i] = i + 1;
+		}
+		return a;
+	}
+
+	/** Add every item in the current inventory (slot order) to the selected list, creating one if needed. */
+	private void addInventory()
+	{
+		plugin.withInventoryIds(ids ->
+		{
+			if (ids.isEmpty())
+			{
+				JOptionPane.showMessageDialog(this, "Your inventory is empty.");
+				return;
+			}
+			RegearList list = selectedList();
+			final boolean created = list == null;
+			if (created)
+			{
+				list = new RegearList(DEFAULT_LIST_NAME());
+				list.visibleCount = plugin.getConfig().defaultVisibleCount();
+				list.enabled = true;
+				list.anchorSlot = RegearList.defaultAnchorSlot(0);
+				list.resetLanes();
+				lists().add(list);
+			}
+			for (int id : ids)
+			{
+				list.items.add(new RegearItem(id));
+			}
+			plugin.commit();
+			if (created)
+			{
+				reload();
+				SwingUtilities.invokeLater(() -> listSelector.setSelectedIndex(lists().size() - 1));
+			}
+			else
+			{
+				refreshForSelection();
+			}
+		});
+	}
+
+	/** Toggle a cell in the custom pattern (click-to-set); switching a preset in seeds its current shape. */
+	private void toggleOffset(int col, int row)
+	{
+		final RegearList list = selectedList();
+		if (list == null)
+		{
+			return;
+		}
+		if (list.pattern != PatternPreset.CUSTOM)
+		{
+			list.customOffsets = new ArrayList<>(list.effectiveOffsets());
+			list.pattern = PatternPreset.CUSTOM;
+		}
+		PatternOffset existing = null;
+		for (PatternOffset o : list.customOffsets)
+		{
+			if (o.x == col && o.y == row)
+			{
+				existing = o;
+				break;
+			}
+		}
+		if (existing != null)
+		{
+			list.customOffsets.remove(existing);
+		}
+		else if (list.customOffsets.size() < 28)
+		{
+			list.customOffsets.add(new PatternOffset(col, row));
+		}
+		list.resetLanes();
+		plugin.commit();
+		refreshForSelection();
 	}
 
 	private JComponent labeled(String text, JComponent field)
@@ -1191,7 +1305,7 @@ class RegearPanel extends PluginPanel
 					out.add(new PatternOffset(x, y));
 				}
 			}
-			if (out.size() >= 6)
+			if (out.size() >= 28)
 			{
 				break;
 			}
@@ -1232,23 +1346,81 @@ class RegearPanel extends PluginPanel
 
 	// --- pattern preview ---------------------------------------------------------------------------
 
-	/** A small grid that numbers the lanes at their pattern offsets. */
-	private static final class PatternPreview extends JPanel
+	/**
+	 * A grid preview that mirrors the bank/inventory with squares. In "click to set" mode each left
+	 * click adds (or removes) a lane at that cell, numbered in click order, so the pattern can be built
+	 * by clicking instead of typing offsets.
+	 */
+	private final class PatternPreview extends JPanel
 	{
+		private static final int CELL = 20;
+		private static final int OX = 4;
+		private static final int OY = 4;
 		private RegearList list;
 
 		PatternPreview()
 		{
-			setPreferredSize(new Dimension(PANEL_WIDTH - 20, 92));
-			setMaximumSize(new Dimension(Integer.MAX_VALUE, 92));
+			setPreferredSize(new Dimension(PANEL_WIDTH - 20, OY * 2 + 7 * CELL));
+			setMaximumSize(new Dimension(Integer.MAX_VALUE, OY * 2 + 7 * CELL));
 			setAlignmentX(LEFT_ALIGNMENT);
 			setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					if (!patternClickMode || list == null || !SwingUtilities.isLeftMouseButton(e))
+					{
+						return;
+					}
+					final int col = (e.getX() - OX) / CELL;
+					final int row = (e.getY() - OY) / CELL;
+					if (col >= 0 && row >= 0 && col < gridCols() && row < gridRows())
+					{
+						toggleOffset(col, row);
+					}
+				}
+			});
 		}
 
 		void setList(RegearList list)
 		{
 			this.list = list;
 			repaint();
+		}
+
+		private int gridCols()
+		{
+			if (patternClickMode)
+			{
+				return RegearList.BANK_COLUMNS;
+			}
+			int maxX = 0;
+			if (list != null)
+			{
+				for (PatternOffset o : list.effectiveOffsets())
+				{
+					maxX = Math.max(maxX, o.x);
+				}
+			}
+			return Math.max(1, maxX + 1);
+		}
+
+		private int gridRows()
+		{
+			if (patternClickMode)
+			{
+				return 7;
+			}
+			int maxY = 0;
+			if (list != null)
+			{
+				for (PatternOffset o : list.effectiveOffsets())
+				{
+					maxY = Math.max(maxY, o.y);
+				}
+			}
+			return Math.max(1, maxY + 1);
 		}
 
 		@Override
@@ -1261,35 +1433,38 @@ class RegearPanel extends PluginPanel
 			}
 			final Graphics2D g = (Graphics2D) g0;
 			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-			final List<PatternOffset> offs = list.effectiveOffsets();
-			int maxX = 0;
-			int maxY = 0;
-			for (PatternOffset o : offs)
+			final int cols = gridCols();
+			final int rows = gridRows();
+			// Empty grid squares so the layout reads like an inventory/bank.
+			for (int y = 0; y < rows; y++)
 			{
-				maxX = Math.max(maxX, o.x);
-				maxY = Math.max(maxY, o.y);
-			}
-			final int cell = 22;
-			final int ox = 6;
-			final int oy = 6;
-			g.setColor(ColorScheme.DARK_GRAY_COLOR);
-			for (int y = 0; y <= maxY; y++)
-			{
-				for (int x = 0; x <= maxX; x++)
+				for (int x = 0; x < cols; x++)
 				{
-					g.drawRect(ox + x * cell, oy + y * cell, cell - 2, cell - 2);
+					final int cx = OX + x * CELL;
+					final int cy = OY + y * CELL;
+					g.setColor(ColorScheme.DARK_GRAY_COLOR);
+					g.fillRect(cx + 1, cy + 1, CELL - 3, CELL - 3);
+					g.setColor(new Color(60, 60, 60));
+					g.drawRect(cx, cy, CELL - 1, CELL - 1);
 				}
 			}
+			// Numbered green cells for the pattern lanes.
 			g.setFont(FontManager.getRunescapeBoldFont());
+			final List<PatternOffset> offs = list.effectiveOffsets();
 			for (int i = 0; i < offs.size(); i++)
 			{
 				final PatternOffset o = offs.get(i);
-				final int cx = ox + o.x * cell;
-				final int cy = oy + o.y * cell;
-				g.setColor(new Color(0, 200, 83, 90));
-				g.fillRect(cx, cy, cell - 2, cell - 2);
+				if (o.x < 0 || o.y < 0)
+				{
+					continue;
+				}
+				final int cx = OX + o.x * CELL;
+				final int cy = OY + o.y * CELL;
+				g.setColor(new Color(0, 200, 83, 160));
+				g.fillRect(cx + 1, cy + 1, CELL - 3, CELL - 3);
 				g.setColor(Color.WHITE);
-				g.drawString(String.valueOf(i + 1), cx + 6, cy + 15);
+				final String n = String.valueOf(i + 1);
+				g.drawString(n, cx + (CELL - g.getFontMetrics().stringWidth(n)) / 2 + 1, cy + CELL - 5);
 			}
 		}
 	}
