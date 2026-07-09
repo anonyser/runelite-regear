@@ -91,6 +91,13 @@ class RegearBankController
 	private final Set<Integer> windowIds = new HashSet<>();
 	private boolean tagRegistered;
 
+	// When suppressed (the panel's Hide overlay button, or the tab-away auto-hide), the guide releases
+	// the bank and draws nothing until shown again. Owned by the plugin; refreshed before each apply.
+	private boolean guideSuppressed;
+	// True while our tag is the one we last opened. Lets the plugin notice the player navigating to a
+	// different bank tab (our tag is no longer active) and auto-hide the guide.
+	private boolean lastApplied;
+
 	@Inject
 	RegearBankController(Client client, RegearConfig config, ItemManager itemManager,
 		BankTagsPlugin bankTags, TagManager tagManager, LayoutManager layoutManager)
@@ -138,6 +145,25 @@ class RegearBankController
 		return tutorial;
 	}
 
+	void setGuideSuppressed(boolean suppressed)
+	{
+		this.guideSuppressed = suppressed;
+	}
+
+	boolean isGuideSuppressed()
+	{
+		return guideSuppressed;
+	}
+
+	/**
+	 * True if the guide was showing but our tag is no longer the active one -- i.e. the player clicked
+	 * a different bank tab. Used to auto-hide the guide so it stops fighting the tab they chose.
+	 */
+	boolean userLeftOurTag()
+	{
+		return lastApplied && !REGEAR_TAG.equals(bankTags.getActiveTag());
+	}
+
 	static int slotToX(int slot)
 	{
 		return slot % COLUMNS * (ITEM_WIDTH + X_PADDING) + START_X;
@@ -162,7 +188,7 @@ class RegearBankController
 		missingLabels.clear();
 		overlapDetected = false;
 
-		if (data == null || !config.applyInBank() || tutorialActive)
+		if (data == null || !config.applyInBank() || tutorialActive || guideSuppressed)
 		{
 			release();
 			return;
@@ -277,6 +303,7 @@ class RegearBankController
 		// layout immediately (relayout) so the window advances live as items are withdrawn.
 		layoutManager.saveLayout(layout);
 		bankTags.openTag(REGEAR_TAG, layout, BankTagsService.OPTION_HIDE_TAG_NAME);
+		lastApplied = true;
 	}
 
 	/** Register the hidden filter predicate once. The predicate reads {@link #windowIds} live. */
@@ -293,6 +320,7 @@ class RegearBankController
 	/** Close our tag if it is the one currently open, returning the bank to its normal view. */
 	private void release()
 	{
+		lastApplied = false;
 		if (REGEAR_TAG.equals(bankTags.getActiveTag()))
 		{
 			bankTags.closeBankTag();

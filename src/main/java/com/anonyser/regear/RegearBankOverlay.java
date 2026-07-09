@@ -61,7 +61,7 @@ class RegearBankOverlay extends Overlay
 			}
 			return null;
 		}
-		if (!config.applyInBank())
+		if (!config.applyInBank() || controller.isGuideSuppressed())
 		{
 			return null;
 		}
@@ -70,25 +70,31 @@ class RegearBankOverlay extends Overlay
 		{
 			return null;
 		}
-		final Point containerLoc = container.getCanvasLocation();
-
-		if (containerLoc == null)
+		final Rectangle view = container.getBounds();
+		if (view == null)
 		{
 			return null;
 		}
+		// The bank scrolls: offset each slot by the current scroll so the highlights track the items,
+		// and only draw a box whose cell is fully within the visible area, so it disappears when the
+		// item is scrolled out of view and pops back onto it when scrolled back.
+		final int scrollY = container.getScrollY();
 		graphics.setFont(FontManager.getRunescapeSmallFont());
 		for (RegearBankController.Placement p : controller.getPlacements())
 		{
+			final Rectangle b = slotRect(view, scrollY, p.slot);
+			if (b == null)
+			{
+				continue; // this slot is scrolled out of the visible bank area
+			}
 			if (p.missing)
 			{
 				if (config.highlightMissing())
 				{
-					drawMissing(graphics, slotRect(containerLoc, p.slot));
+					drawMissing(graphics, b);
 				}
 				continue;
 			}
-			// Core positions the item; draw at the slot geometry it uses (grid constants are identical).
-			final Rectangle b = slotRect(containerLoc, p.slot);
 			if (config.highlightActive())
 			{
 				graphics.setColor(config.activeColor());
@@ -292,13 +298,19 @@ class RegearBankOverlay extends Overlay
 		g.drawString(text, x, y);
 	}
 
-	private static Rectangle slotRect(Point containerLoc, int slot)
+	/**
+	 * The canvas rectangle for a slot, shifted by the current bank scroll, or {@code null} if the cell
+	 * is not fully within the scroll viewport (so the highlight is hidden until it is scrolled back).
+	 */
+	private static Rectangle slotRect(Rectangle view, int scrollY, int slot)
 	{
-		return new Rectangle(
-			containerLoc.getX() + RegearBankController.slotToX(slot),
-			containerLoc.getY() + RegearBankController.slotToY(slot),
-			RegearBankController.ITEM_WIDTH,
-			RegearBankController.ITEM_HEIGHT);
+		final int x = view.x + RegearBankController.slotToX(slot);
+		final int y = view.y + RegearBankController.slotToY(slot) - scrollY;
+		if (y < view.y || y + RegearBankController.ITEM_HEIGHT > view.y + view.height)
+		{
+			return null;
+		}
+		return new Rectangle(x, y, RegearBankController.ITEM_WIDTH, RegearBankController.ITEM_HEIGHT);
 	}
 
 	private void drawMissing(Graphics2D g, Rectangle r)

@@ -102,12 +102,18 @@ public class RegearPlugin extends Plugin
 	@Inject
 	private RegearBankOverlay bankOverlay;
 
+	@Inject
+	private RegearEquipmentOverlay equipmentOverlay;
+
 	private RegearData data;
 	private RegearPanel panel;
 	private NavigationButton navButton;
 
 	private boolean bankOpen;
 	private int tick;
+	// Per-session auto-hide: set when the player clicks away to another bank tab, cleared when the bank
+	// is reopened. Combines with the persisted overlayHidden flag to suppress the guide.
+	private boolean autoHidden;
 
 	// Intercepts bank clicks while the tutorial runs, so nothing is actually withdrawn and each click
 	// on a green box advances the lesson instead.
@@ -150,6 +156,7 @@ public class RegearPlugin extends Plugin
 
 		overlayManager.add(idOverlay);
 		overlayManager.add(bankOverlay);
+		overlayManager.add(equipmentOverlay);
 		mouseManager.registerMouseListener(tutorialMouse);
 	}
 
@@ -162,6 +169,7 @@ public class RegearPlugin extends Plugin
 		mouseManager.unregisterMouseListener(tutorialMouse);
 		overlayManager.remove(idOverlay);
 		overlayManager.remove(bankOverlay);
+		overlayManager.remove(equipmentOverlay);
 		clientToolbar.removeNavigation(navButton);
 		if (panel != null)
 		{
@@ -213,7 +221,7 @@ public class RegearPlugin extends Plugin
 		{
 			clientThread.invoke(() ->
 			{
-				bankController.applyLayout(tick);
+				applyBankLayout();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -319,7 +327,7 @@ public class RegearPlugin extends Plugin
 			{
 				clientThread.invoke(() ->
 				{
-					bankController.applyLayout(tick);
+					applyBankLayout();
 					SwingUtilities.invokeLater(this::refreshWarnings);
 				});
 			}
@@ -341,7 +349,7 @@ public class RegearPlugin extends Plugin
 			clientThread.invoke(() ->
 			{
 				reconcileAll();
-				bankController.applyLayout(tick);
+				applyBankLayout();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -354,6 +362,84 @@ public class RegearPlugin extends Plugin
 			panel.setWarnings(new ArrayList<>(bankController.getMissingLabels()),
 				bankController.isOverlapDetected());
 		}
+	}
+
+	/** Refresh the guide's suppression state, then (re)apply the bank layout. Client thread only. */
+	private void applyBankLayout()
+	{
+		bankController.setGuideSuppressed(config.overlayHidden() || autoHidden);
+		bankController.applyLayout(tick);
+	}
+
+	/** True if the whole bank guide is currently hidden (persistent Hide overlay, or tab-away auto-hide). */
+	boolean isOverlayGuideHidden()
+	{
+		return config.overlayHidden() || autoHidden;
+	}
+
+	/**
+	 * Toggle the whole bank guide from the panel button. Hiding is persistent (stays off across bank
+	 * opens until shown); showing also clears any per-session tab-away auto-hide.
+	 */
+	void toggleOverlayGuide()
+	{
+		final boolean hideNow = !isOverlayGuideHidden();
+		if (!hideNow)
+		{
+			autoHidden = false;
+		}
+		configManager.setConfiguration(RegearConfig.GROUP, "overlayHidden", hideNow);
+		if (bankOpen)
+		{
+			clientThread.invoke(() ->
+			{
+				applyBankLayout();
+				SwingUtilities.invokeLater(this::refreshWarnings);
+			});
+		}
+	}
+
+	/** Copy the given setup to shareable text; null-safe. */
+	String exportSetup(RegearList list)
+	{
+		return list == null ? null : RegearShare.export(java.util.Collections.singletonList(list), gson);
+	}
+
+	/** Copy every setup to shareable text. */
+	String exportAllSetups()
+	{
+		return RegearShare.export(data.lists, gson);
+	}
+
+	/** Add setups from share text, renaming any that clash on name (" (2)"). Returns how many were added. */
+	int importSetups(String text)
+	{
+		final List<RegearList> incoming = RegearShare.parse(text, gson);
+		if (incoming.isEmpty())
+		{
+			return 0;
+		}
+		final Set<String> lower = new HashSet<>();
+		for (RegearList l : data.lists)
+		{
+			if (l != null && l.name != null)
+			{
+				lower.add(l.name.toLowerCase());
+			}
+		}
+		for (RegearList l : incoming)
+		{
+			l.name = RegearShare.uniqueName(l.name, lower);
+			lower.add(l.name.toLowerCase());
+			data.lists.add(l);
+		}
+		commit();
+		return incoming.size();
+	}
+
+	void setShowEquipment(boolean show)
+	{
+		configManager.setConfiguration(RegearConfig.GROUP, "showEquipmentOverlay", show);
 	}
 
 	// --- Persistence -------------------------------------------------------------------------------
@@ -398,6 +484,15 @@ public class RegearPlugin extends Plugin
 		{
 			return;
 		}
+		// If the guide is showing and the player clicked away to a different bank tab, auto-hide it so it
+		// stops re-filtering the bank back to Regear. It re-arms next time the bank is opened.
+		if (!config.overlayHidden() && !autoHidden && bankController.userLeftOurTag())
+		{
+			autoHidden = true;
+			applyBankLayout();
+			SwingUtilities.invokeLater(this::refreshWarnings);
+			return;
+		}
 		boolean releaseDue = false;
 		for (RegearList list : data.lists)
 		{
@@ -408,7 +503,7 @@ public class RegearPlugin extends Plugin
 		}
 		if (releaseDue)
 		{
-			bankController.applyLayout(tick);
+			applyBankLayout();
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		}
 	}
@@ -419,6 +514,8 @@ public class RegearPlugin extends Plugin
 		if (event.getGroupId() == BANK_GROUP)
 		{
 			bankOpen = true;
+			// A fresh bank open re-arms the guide: the tab-away auto-hide is only for the session.
+			autoHidden = false;
 			captureBaseline();
 			for (RegearList list : data.lists)
 			{
@@ -428,7 +525,7 @@ public class RegearPlugin extends Plugin
 				}
 			}
 			reconcileAll();
-			bankController.applyLayout(tick);
+			applyBankLayout();
 			applyDragDelay();
 			SwingUtilities.invokeLater(this::refreshWarnings);
 			if (bankController.isTutorialActive() && !bankController.getTutorial().hasSteps())
@@ -465,7 +562,7 @@ public class RegearPlugin extends Plugin
 			if (reconcileAll())
 			{
 				save();
-				bankController.applyLayout(tick);
+				applyBankLayout();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			}
 		}
@@ -494,7 +591,7 @@ public class RegearPlugin extends Plugin
 			clientThread.invoke(() ->
 			{
 				applyDragDelay();
-				bankController.applyLayout(tick);
+				applyBankLayout();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -732,7 +829,7 @@ public class RegearPlugin extends Plugin
 			target.resetLanes();
 			reconcileAll();
 			save();
-			bankController.applyLayout(tick);
+			applyBankLayout();
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		});
 	}
@@ -752,7 +849,7 @@ public class RegearPlugin extends Plugin
 			}
 			reconcileAll();
 			save();
-			bankController.applyLayout(tick);
+			applyBankLayout();
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		});
 	}

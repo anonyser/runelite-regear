@@ -39,6 +39,13 @@ public interface RegearConfig extends Config
 	)
 	String behaviourSection = "behaviour";
 
+	@ConfigSection(
+		name = "Equipment panel",
+		description = "A movable panel that mirrors your worn equipment while the bank is open",
+		position = 3
+	)
+	String equipmentSection = "equipment";
+
 	@ConfigItem(
 		keyName = "applyInBank",
 		name = "Show setups in bank",
@@ -151,6 +158,34 @@ public interface RegearConfig extends Config
 	default Color missingColor()
 	{
 		return new Color(220, 40, 40, 200);
+	}
+
+	@ConfigItem(
+		keyName = "overlayHidden",
+		name = "Hide bank guide",
+		description = "Hide the whole Regear guide in the bank so you can browse it freely. This is the<br>"
+			+ "same as the Hide overlay button in the panel; turn it off (or click Show overlay) to<br>"
+			+ "bring the guide back.",
+		position = 6,
+		section = overlaySection
+	)
+	default boolean overlayHidden()
+	{
+		return false;
+	}
+
+	@ConfigItem(
+		keyName = "showEquipmentOverlay",
+		name = "Show equipment while banking",
+		description = "Show a movable panel of your current worn equipment while the bank is open, in the<br>"
+			+ "game's equipment layout. It updates live as you gear up and hides when you close the<br>"
+			+ "bank. Drag it anywhere like any other overlay.",
+		position = 0,
+		section = equipmentSection
+	)
+	default boolean showEquipmentOverlay()
+	{
+		return false;
 	}
 
 	@ConfigItem(

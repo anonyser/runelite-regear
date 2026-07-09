@@ -28,6 +28,8 @@ import javax.swing.JMenu;
 import javax.swing.JPanel;
 import javax.swing.JPopupMenu;
 import javax.swing.JMenuItem;
+import javax.swing.JScrollPane;
+import javax.swing.JTextArea;
 import javax.swing.JTextField;
 import javax.swing.SwingConstants;
 import javax.swing.SwingUtilities;
@@ -69,6 +71,7 @@ class RegearPanel extends PluginPanel
 	private final JLabel pickHint = new JLabel();
 	private final JButton tutorialButton = new JButton("Tutorial");
 	private final JCheckBox hideTutorialBox = new JCheckBox();
+	private final JButton hideOverlayButton = new JButton("Hide overlay");
 	private javax.swing.Timer flashTimer;
 	private boolean flashOn;
 
@@ -94,9 +97,11 @@ class RegearPanel extends PluginPanel
 		content.add(vspace());
 		content.add(listRow());
 		content.add(listButtonsRow());
+		content.add(shareRow());
 		content.add(vspace());
 		content.add(enabledRow());
 		content.add(enableAllRow());
+		content.add(hideOverlayRow());
 		content.add(labeled("Visible", visibleCount));
 		content.add(labeled("Pattern", patternSelector));
 		content.add(customFieldRow());
@@ -118,6 +123,8 @@ class RegearPanel extends PluginPanel
 		content.add(addRow());
 		content.add(vspace());
 		content.add(warningsPanel);
+		content.add(vspace());
+		content.add(equipmentRow());
 
 		warningsPanel.setLayout(new BoxLayout(warningsPanel, BoxLayout.Y_AXIS));
 		completionInfo.setFont(FontManager.getRunescapeSmallFont());
@@ -140,6 +147,9 @@ class RegearPanel extends PluginPanel
 		{
 			flashOn = !flashOn;
 			updateTutorialButton();
+			// Keep the Hide/Show overlay label in step even when the state changes without a click here
+			// (e.g. the tab-away auto-hide flips it from the plugin side).
+			updateHideOverlayButton();
 			if (!tutorialButton.isVisible())
 			{
 				return;
@@ -244,6 +254,150 @@ class RegearPanel extends PluginPanel
 		tutorialButton.setText(active ? "End tutorial" : "Tutorial");
 		tutorialButton.setToolTipText(active
 			? "Stop the tutorial" : "Start an interactive tutorial on the bank");
+	}
+
+	/** A full-width button that hides or shows the whole Regear guide in the bank. */
+	private JComponent hideOverlayRow()
+	{
+		hideOverlayButton.setFocusPainted(false);
+		hideOverlayButton.setFont(FontManager.getRunescapeFont());
+		hideOverlayButton.setAlignmentX(LEFT_ALIGNMENT);
+		hideOverlayButton.setMaximumSize(new Dimension(Integer.MAX_VALUE, 30));
+		hideOverlayButton.setToolTipText(
+			"Hide the whole Regear guide in the bank so you can browse freely; click again to bring it back");
+		hideOverlayButton.addActionListener(e ->
+		{
+			plugin.toggleOverlayGuide();
+			updateHideOverlayButton();
+		});
+		updateHideOverlayButton();
+		return hideOverlayButton;
+	}
+
+	private void updateHideOverlayButton()
+	{
+		hideOverlayButton.setText(plugin.isOverlayGuideHidden() ? "Show overlay" : "Hide overlay");
+	}
+
+	/** Export (current / all) and import setups as shareable text. */
+	private JComponent shareRow()
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 3, 3, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		final JButton export = compact(button("Export", e -> exportCurrent()));
+		export.setToolTipText("Copy the selected setup to the clipboard as shareable text");
+		final JButton exportAll = compact(button("Export all", e -> exportAll()));
+		exportAll.setToolTipText("Copy every setup to the clipboard as one shareable text");
+		final JButton importButton = compact(button("Import", e -> importSetups()));
+		importButton.setToolTipText("Paste shared setup text to add it to your lists");
+		row.add(export);
+		row.add(exportAll);
+		row.add(importButton);
+		return row;
+	}
+
+	private JComponent equipmentRow()
+	{
+		final JCheckBox box = new JCheckBox("Show equipment while banking");
+		box.setToolTipText("Show a movable panel of your worn equipment while the bank is open (drag it anywhere)");
+		box.setAlignmentX(LEFT_ALIGNMENT);
+		box.setSelected(plugin.getConfig().showEquipmentOverlay());
+		box.addActionListener(e -> plugin.setShowEquipment(box.isSelected()));
+		return box;
+	}
+
+	private void exportCurrent()
+	{
+		final RegearList list = selectedList();
+		if (list == null)
+		{
+			JOptionPane.showMessageDialog(this, "Select a setup to export first.");
+			return;
+		}
+		shareExport(plugin.exportSetup(list), "Copied \"" + list.name + "\" to the clipboard.");
+	}
+
+	private void exportAll()
+	{
+		if (lists().isEmpty())
+		{
+			JOptionPane.showMessageDialog(this, "There are no setups to export.");
+			return;
+		}
+		shareExport(plugin.exportAllSetups(), "Copied all " + lists().size() + " setups to the clipboard.");
+	}
+
+	private void shareExport(String token, String message)
+	{
+		if (token == null || token.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this, "Nothing to export.");
+			return;
+		}
+		copyToClipboard(token);
+		// Show the text too (selectable) in case the clipboard is unavailable.
+		final JTextArea area = new JTextArea(token);
+		area.setLineWrap(true);
+		area.setEditable(false);
+		area.setCaretPosition(0);
+		final JScrollPane scroll = new JScrollPane(area);
+		scroll.setPreferredSize(new Dimension(240, 90));
+		JOptionPane.showMessageDialog(this, scroll, message, JOptionPane.INFORMATION_MESSAGE);
+	}
+
+	private void importSetups()
+	{
+		final JTextArea area = new JTextArea();
+		area.setLineWrap(true);
+		final String seed = clipboardText();
+		if (seed != null && seed.contains(RegearShare.PREFIX))
+		{
+			area.setText(seed.trim());
+		}
+		final JScrollPane scroll = new JScrollPane(area);
+		scroll.setPreferredSize(new Dimension(240, 90));
+		final int ok = JOptionPane.showConfirmDialog(this, scroll, "Paste setup text to import",
+			JOptionPane.OK_CANCEL_OPTION, JOptionPane.PLAIN_MESSAGE);
+		if (ok != JOptionPane.OK_OPTION)
+		{
+			return;
+		}
+		final int n = plugin.importSetups(area.getText());
+		if (n <= 0)
+		{
+			JOptionPane.showMessageDialog(this, "No valid Regear setup found in that text.");
+			return;
+		}
+		reload();
+		JOptionPane.showMessageDialog(this, "Imported " + n + (n == 1 ? " setup." : " setups."));
+	}
+
+	private void copyToClipboard(String text)
+	{
+		try
+		{
+			java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+				.setContents(new java.awt.datatransfer.StringSelection(text), null);
+		}
+		catch (Exception ignored)
+		{
+			// Clipboard may be unavailable (headless/locked); the dialog still shows the text to copy.
+		}
+	}
+
+	private String clipboardText()
+	{
+		try
+		{
+			final Object data = java.awt.Toolkit.getDefaultToolkit().getSystemClipboard()
+				.getData(java.awt.datatransfer.DataFlavor.stringFlavor);
+			return data instanceof String ? (String) data : null;
+		}
+		catch (Exception e)
+		{
+			return null;
+		}
 	}
 
 	/** Stop the flashing timer; called when the plugin shuts down so it does not leak. */
