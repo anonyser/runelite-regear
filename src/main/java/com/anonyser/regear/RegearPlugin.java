@@ -860,7 +860,7 @@ public class RegearPlugin extends Plugin
 			}
 			for (RegearItem it : list.items)
 			{
-				if (it != null && !(it.skipIfWorn && wornCovers(it, worn)))
+				if (it != null && !it.alwaysSkipped() && !(it.skipIfWorn && wornCovers(it, worn)))
 				{
 					return true;
 				}
@@ -939,9 +939,9 @@ public class RegearPlugin extends Plugin
 			final RegearItem it = list.items.get(i);
 			final int req = Math.max(1, it.quantity);
 			int got = 0;
-			if (it.skipIfWorn && wornCovers(it, worn))
+			if (it.alwaysSkipped() || (it.skipIfWorn && wornCovers(it, worn)))
 			{
-				got = req; // you are wearing it -- treat as satisfied, do not show it
+				got = req; // omitted, a blank slot, or worn -- treat as satisfied, do not show it
 			}
 			else
 			{

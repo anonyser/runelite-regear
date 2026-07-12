@@ -134,6 +134,7 @@ class RegearPanel extends PluginPanel
 		content.add(vspace());
 		content.add(addRow());
 		content.add(addInventoryRow());
+		content.add(addBlankRow());
 		content.add(vspace());
 		content.add(warningsPanel);
 		content.add(vspace());
@@ -513,6 +514,33 @@ class RegearPanel extends PluginPanel
 		return b;
 	}
 
+	private JComponent addBlankRow()
+	{
+		final JButton b = button("Add blank space", e -> addBlankSpace());
+		b.setAlignmentX(LEFT_ALIGNMENT);
+		b.setFont(FontManager.getRunescapeFont());
+		b.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		b.setToolTipText("Add an empty inventory slot to this setup - nothing is withdrawn there, "
+			+ "so the regear leaves a free slot");
+		return b;
+	}
+
+	/** Append a blank placeholder (an intentional empty inventory slot) to the selected setup. */
+	private void addBlankSpace()
+	{
+		final RegearList list = selectedList();
+		if (list == null)
+		{
+			JOptionPane.showMessageDialog(this, "Select or create a setup first.");
+			return;
+		}
+		final RegearItem blank = new RegearItem();
+		blank.blank = true;
+		list.items.add(blank);
+		plugin.commit();
+		refreshForSelection();
+	}
+
 	/** Header row for the pattern preview: the section label plus a "Click to set" toggle. */
 	private JComponent patternPreviewHeader()
 	{
@@ -888,37 +916,60 @@ class RegearPanel extends PluginPanel
 		tag.setForeground(hasAlts ? ColorScheme.BRAND_ORANGE : ColorScheme.LIGHT_GRAY_COLOR);
 		slot.add(tag, BorderLayout.SOUTH);
 
-		// Resolve the icon and name off the client thread, then apply on the EDT.
-		final int id = item.id;
-		clientThread.invoke(() ->
+		if (item.blank)
 		{
-			final AsyncBufferedImage img = itemManager.getImage(id, Math.max(1, item.quantity), item.quantity > 1);
-			final String name = itemName(id);
-			final List<String> altLines = new ArrayList<>();
-			for (int a : item.alts)
+			// A deliberate empty inventory slot: no item, drawn as a dashed placeholder and skipped in
+			// the regear. Still numbered, orderable and removable like any other entry.
+			icon.setText("blank");
+			icon.setFont(FontManager.getRunescapeSmallFont());
+			icon.setForeground(ColorScheme.LIGHT_GRAY_COLOR.darker());
+			slot.setBorder(BorderFactory.createDashedBorder(ColorScheme.LIGHT_GRAY_COLOR.darker()));
+			slot.setToolTipText("Blank space - an empty inventory slot (nothing is withdrawn here)");
+		}
+		else
+		{
+			if (item.omitted)
 			{
-				altLines.add(itemName(a) + " (id " + a + ")");
+				// A muted number marks the omitted placeholder even before the icon resolves.
+				tag.setForeground(ColorScheme.LIGHT_GRAY_COLOR.darker());
 			}
-			SwingUtilities.invokeLater(() ->
+			// Resolve the icon and name off the client thread, then apply on the EDT.
+			final int id = item.id;
+			clientThread.invoke(() ->
 			{
-				img.addTo(icon);
-				final StringBuilder tip = new StringBuilder("<html>")
-					.append(name).append(" (id ").append(id).append(')');
-				if (item.note != null && !item.note.isEmpty())
+				final AsyncBufferedImage img = itemManager.getImage(id, Math.max(1, item.quantity), item.quantity > 1);
+				final String name = itemName(id);
+				final List<String> altLines = new ArrayList<>();
+				for (int a : item.alts)
 				{
-					tip.append(" - ").append(item.note);
+					altLines.add(itemName(a) + " (id " + a + ")");
 				}
-				for (int i = 0; i < altLines.size(); i++)
+				SwingUtilities.invokeLater(() ->
 				{
-					tip.append("<br>&nbsp;&nbsp;fallback ").append(i + 1).append(": ").append(altLines.get(i));
-				}
-				if (item.skipIfWorn)
-				{
-					tip.append("<br>(skip if worn)");
-				}
-				slot.setToolTipText(tip.append("</html>").toString());
+					img.addTo(icon);
+					icon.setEnabled(!item.omitted); // omitted items show greyed out
+					final StringBuilder tip = new StringBuilder("<html>")
+						.append(name).append(" (id ").append(id).append(')');
+					if (item.note != null && !item.note.isEmpty())
+					{
+						tip.append(" - ").append(item.note);
+					}
+					for (int i = 0; i < altLines.size(); i++)
+					{
+						tip.append("<br>&nbsp;&nbsp;fallback ").append(i + 1).append(": ").append(altLines.get(i));
+					}
+					if (item.skipIfWorn)
+					{
+						tip.append("<br>(skip if worn)");
+					}
+					if (item.omitted)
+					{
+						tip.append("<br>(omitted - skipped in the regear)");
+					}
+					slot.setToolTipText(tip.append("</html>").toString());
+				});
 			});
-		});
+		}
 
 		slot.addMouseListener(new MouseAdapter()
 		{
@@ -968,6 +1019,20 @@ class RegearPanel extends PluginPanel
 			return false;
 		}
 		final JPopupMenu menu = new JPopupMenu();
+		if (list.items.get(index).blank)
+		{
+			// A blank slot has no item to edit -- just placement and removal.
+			menu.add(menuItem("Remove", () ->
+			{
+				list.items.remove(index);
+				plugin.commit();
+				refreshForSelection();
+			}));
+			menu.add(menuItem("Move left", () -> reorder(list, index, index - 1)));
+			menu.add(menuItem("Move right", () -> reorder(list, index, index + 1)));
+			menu.show(e.getComponent(), e.getX(), e.getY());
+			return true;
+		}
 		menu.add(menuItem("Duplicate", () ->
 		{
 			list.items.add(index + 1, list.items.get(index).copy());
@@ -1033,6 +1098,13 @@ class RegearPanel extends PluginPanel
 		menu.add(menuItem((worn ? "✓ " : "") + "Skip if worn", () ->
 		{
 			list.items.get(index).skipIfWorn = !worn;
+			plugin.commit();
+			refreshForSelection();
+		}));
+		final boolean omitted = list.items.get(index).omitted;
+		menu.add(menuItem((omitted ? "✓ " : "") + "Omit", () ->
+		{
+			list.items.get(index).omitted = !omitted;
 			plugin.commit();
 			refreshForSelection();
 		}));

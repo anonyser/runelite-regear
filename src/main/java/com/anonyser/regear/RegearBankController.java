@@ -245,7 +245,7 @@ class RegearBankController
 			{
 				final RegearItem item = list.activeItem(lane);
 				final int slot = list.absoluteSlot(lane);
-				if (item == null || slot < 0)
+				if (item == null || slot < 0 || item.alwaysSkipped())
 				{
 					continue;
 				}

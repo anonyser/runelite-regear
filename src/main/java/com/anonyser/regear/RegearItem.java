@@ -22,6 +22,10 @@ class RegearItem
 	/** If set, this item counts as already satisfied while you are wearing it, so it is not shown in
 	 *  the regear (e.g. a Ring of Recoil you still have on -- no point pulling another). Per list. */
 	boolean skipIfWorn;
+	/** Manually omitted from this list: kept as a placeholder but skipped in the regear, unconditionally. */
+	boolean omitted;
+	/** A deliberate empty inventory slot: no item, never withdrawn, occupying a position in the list. */
+	boolean blank;
 
 	// Required by Gson for deserialization.
 	RegearItem()
@@ -46,6 +50,15 @@ class RegearItem
 		return otherId == id || (alts != null && alts.contains(otherId));
 	}
 
+	/**
+	 * True if this entry is never withdrawn no matter what you own or wear -- a blank slot or a
+	 * manually omitted item. It stays in the list as a placeholder, but the cycle steps past it.
+	 */
+	boolean alwaysSkipped()
+	{
+		return blank || omitted;
+	}
+
 	RegearItem copy()
 	{
 		final RegearItem c = new RegearItem(id, quantity, note);
@@ -53,6 +66,9 @@ class RegearItem
 		{
 			c.alts = new ArrayList<>(alts);
 		}
+		c.skipIfWorn = skipIfWorn;
+		c.omitted = omitted;
+		c.blank = blank;
 		return c;
 	}
 }
