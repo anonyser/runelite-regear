@@ -709,9 +709,10 @@ class RegearPanel extends PluginPanel
 
 	private List<RegearList> lists()
 	{
-		// Null-guarded: plugin shutDown() clears the data while a queued repaint can still reach
-		// the preview (which reads other lists' footprints) through this accessor.
-		final RegearData data = plugin.getData();
+		// Null-guarded twice: the listSelector field initializer runs before the constructor assigns
+		// `plugin`, and shutDown() later clears the data while a queued repaint can still reach this
+		// accessor (the preview reads other lists' footprints through it).
+		final RegearData data = plugin == null ? null : plugin.getData();
 		return data == null ? java.util.Collections.emptyList() : data.lists;
 	}
 
@@ -1234,7 +1235,7 @@ class RegearPanel extends PluginPanel
 
 	private List<RegearGroup> groups()
 	{
-		final RegearData data = plugin.getData();
+		final RegearData data = plugin == null ? null : plugin.getData();
 		return data == null ? java.util.Collections.emptyList() : data.groups;
 	}
 
