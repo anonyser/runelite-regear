@@ -1,6 +1,7 @@
 package com.anonyser.regear;
 
 import java.awt.Color;
+import java.awt.FontMetrics;
 import java.awt.Graphics2D;
 import java.awt.Rectangle;
 import javax.inject.Inject;
@@ -39,11 +40,15 @@ class RegearIdOverlay extends WidgetItemOverlay
 		}
 		final String text = Integer.toString(itemId);
 		graphics.setFont(FontManager.getRunescapeSmallFont());
-		final int x = bounds.x + 1;
-		final int y = bounds.y + bounds.height - 1;
-		// A one-pixel shadow keeps the white readable over bright item sprites.
-		graphics.setColor(Color.BLACK);
-		graphics.drawString(text, x + 1, y + 1);
+		final FontMetrics fm = graphics.getFontMetrics();
+		final int tw = fm.stringWidth(text);
+		final int x = bounds.x + (bounds.width - tw) / 2;
+		final int y = bounds.y + (bounds.height + fm.getAscent()) / 2 - 1;
+		// Dead centre of the icon, on a filled backing strip: the game's quantity owns the top-left
+		// corner and charge counters / Regear's own withdraw progress own the bottom-left, so the
+		// middle is the one spot where the id stays readable without piling onto other text.
+		graphics.setColor(new Color(0, 0, 0, 180));
+		graphics.fillRect(x - 2, y - fm.getAscent(), tw + 4, fm.getAscent() + 3);
 		graphics.setColor(Color.WHITE);
 		graphics.drawString(text, x, y);
 	}

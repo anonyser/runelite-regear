@@ -23,11 +23,15 @@ class RegearList
 	boolean enabled;
 	List<RegearItem> items = new ArrayList<>();
 	int visibleCount = 3;
-	PatternPreset pattern = PatternPreset.VERTICAL;
+	PatternPreset pattern = PatternPreset.Z;
 	List<PatternOffset> customOffsets = new ArrayList<>();
 	/** Base bank slot (0-based, 8-wide grid) that lane offset (0,0) maps to. */
 	int anchorSlot = defaultAnchorSlot(0);
-	/** Per-list override of the global completion behaviour; null means "use the global setting". */
+	/**
+	 * Legacy per-list completion override, kept only so old saved/shared setups still deserialize.
+	 * The plugin no longer reads it: the completion behaviour in the plugin options applies to
+	 * every list.
+	 */
 	CompletionBehavior completion;
 	/** Persisted progress: {@code laneCursors[k]} is the item index currently shown in lane k. */
 	int[] laneCursors;
@@ -55,12 +59,13 @@ class RegearList
 	}
 
 	/**
-	 * The default anchor slot for the Nth enabled list: first sits at the far right ~4 rows down,
-	 * each later list steps two columns left so patterns up to two columns wide do not collide.
+	 * The default anchor slot for the Nth enabled list: first sits at column 6 ~4 rows down (leaving
+	 * room for the two-column default Z pattern to reach column 7), each later list steps two columns
+	 * left so patterns up to two columns wide do not collide.
 	 */
 	static int defaultAnchorSlot(int order)
 	{
-		final int col = Math.max(0, 7 - order * 2);
+		final int col = Math.max(0, 6 - order * 2);
 		final int row = 4;
 		return row * BANK_COLUMNS + col;
 	}
@@ -85,7 +90,7 @@ class RegearList
 		}
 		if (pattern == null)
 		{
-			pattern = PatternPreset.VERTICAL;
+			pattern = PatternPreset.Z;
 		}
 		visibleCount = Math.max(1, Math.min(28, visibleCount));
 		ensureLanes();
@@ -341,10 +346,5 @@ class RegearList
 			}
 		}
 		return true;
-	}
-
-	CompletionBehavior effectiveCompletion(CompletionBehavior globalDefault)
-	{
-		return completion != null ? completion : globalDefault;
 	}
 }

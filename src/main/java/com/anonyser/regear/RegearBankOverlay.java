@@ -97,8 +97,10 @@ class RegearBankOverlay extends Overlay
 			}
 			if (config.highlightActive())
 			{
-				graphics.setColor(config.activeColor());
-				graphics.setStroke(new BasicStroke(2f));
+				// Thin boxes so the items stay visible; the slot to click next stands out in the
+				// "current click" colour and walks the withdraw order live.
+				graphics.setColor(p.current ? config.currentColor() : config.slotColor());
+				graphics.setStroke(new BasicStroke(1f));
 				graphics.drawRect(b.x, b.y, b.width, b.height);
 			}
 			if (config.showLaneNumbers())
@@ -316,7 +318,7 @@ class RegearBankOverlay extends Overlay
 	private void drawMissing(Graphics2D g, Rectangle r)
 	{
 		g.setColor(config.missingColor());
-		g.setStroke(new BasicStroke(2f));
+		g.setStroke(new BasicStroke(1f));
 		g.drawRect(r.x, r.y, r.width, r.height);
 		g.drawLine(r.x, r.y, r.x + r.width, r.y + r.height);
 		g.drawLine(r.x + r.width, r.y, r.x, r.y + r.height);

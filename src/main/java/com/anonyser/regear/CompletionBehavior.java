@@ -1,8 +1,8 @@
 package com.anonyser.regear;
 
 /**
- * What a Regear lane does once it has advanced past the end of its list.
- * A list may override the global default; {@link #STOP} is the default.
+ * What a Regear lane does once it has advanced past the end of its list. Set once in the plugin
+ * options and applied to every list; {@link #STOP} is the default.
  */
 public enum CompletionBehavior
 {

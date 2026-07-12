@@ -33,6 +33,21 @@ public class RegearRotationTest
 	}
 
 	@Test
+	public void newListsDefaultToZPattern()
+	{
+		final RegearList fresh = new RegearList("fresh");
+		assertEquals(PatternPreset.Z, fresh.pattern);
+		// A brand-new list on pure defaults (Z, default visible count, default anchor) must fit the
+		// grid -- Z is two columns wide, so the default anchor cannot sit on the last column.
+		fresh.visibleCount = 3;
+		assertTrue(fresh.fitsGrid());
+		final RegearList loaded = new RegearList("loaded");
+		loaded.pattern = null;
+		loaded.normalize();
+		assertEquals(PatternPreset.Z, loaded.pattern);
+	}
+
+	@Test
 	public void threeLaneVerticalRotation()
 	{
 		final RegearList l = list(PatternPreset.VERTICAL, 3, 12);
@@ -134,8 +149,8 @@ public class RegearRotationTest
 	@Test
 	public void absoluteSlotsAndGridFit()
 	{
-		assertEquals(39, RegearList.defaultAnchorSlot(0));
-		assertEquals(37, RegearList.defaultAnchorSlot(1));
+		assertEquals(38, RegearList.defaultAnchorSlot(0));
+		assertEquals(36, RegearList.defaultAnchorSlot(1));
 
 		final RegearList v = list(PatternPreset.VERTICAL, 3, 6);
 		v.anchorSlot = 39; // col 7, row 4

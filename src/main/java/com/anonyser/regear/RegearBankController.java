@@ -13,7 +13,10 @@ import net.runelite.api.InventoryID;
 import net.runelite.api.Item;
 import net.runelite.api.ItemComposition;
 import net.runelite.api.ItemContainer;
+import net.runelite.api.gameval.InterfaceID;
+import net.runelite.api.widgets.Widget;
 import net.runelite.client.game.ItemManager;
+import net.runelite.client.plugins.bank.BankSearch;
 import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.banktags.BankTagsService;
 import net.runelite.client.plugins.banktags.TagManager;
@@ -63,6 +66,8 @@ class RegearBankController
 		int withdrawn;       // amount of this item withdrawn so far toward its required quantity
 		int required;        // quantity to withdraw before the lane advances (>=1)
 		int shownId;         // the canonical id actually shown/withdrawn (primary, or an "or" alternative)
+		int itemIndex;       // position of the active item within its list (the withdraw order)
+		boolean current;     // this is the slot its list wants clicked next (earliest pending item)
 
 		Placement(String listName, int lane, int slot, RegearItem item)
 		{
@@ -79,6 +84,7 @@ class RegearBankController
 	private final BankTagsPlugin bankTags;
 	private final TagManager tagManager;
 	private final LayoutManager layoutManager;
+	private final BankSearch bankSearch;
 
 	private RegearData data;
 	private final List<Placement> placements = new ArrayList<>();
@@ -101,7 +107,7 @@ class RegearBankController
 
 	@Inject
 	RegearBankController(Client client, RegearConfig config, ItemManager itemManager,
-		BankTagsPlugin bankTags, TagManager tagManager, LayoutManager layoutManager)
+		BankTagsPlugin bankTags, TagManager tagManager, LayoutManager layoutManager, BankSearch bankSearch)
 	{
 		this.client = client;
 		this.config = config;
@@ -109,6 +115,7 @@ class RegearBankController
 		this.bankTags = bankTags;
 		this.tagManager = tagManager;
 		this.layoutManager = layoutManager;
+		this.bankSearch = bankSearch;
 	}
 
 	void setData(RegearData data)
@@ -252,6 +259,7 @@ class RegearBankController
 				p.next = list.nextItem(lane);
 				p.withdrawn = list.getWithdrawn(lane);
 				p.required = Math.max(1, item.quantity);
+				p.itemIndex = list.activeIndex(lane);
 				if (bySlot.containsKey(slot))
 				{
 					overlapDetected = true;
@@ -306,6 +314,27 @@ class RegearBankController
 			placements.add(p);
 		}
 
+		// Mark, per list, the slot the player should click NOW: the earliest pending item (lowest
+		// list index) among its visible, present slots. The overlay draws it in the "current click"
+		// colour, and it moves through the order in real time as lanes advance.
+		final Map<RegearList, Placement> currentByList = new LinkedHashMap<>();
+		for (Placement p : placements)
+		{
+			if (p.missing)
+			{
+				continue;
+			}
+			final Placement best = currentByList.get(p.list);
+			if (best == null || p.itemIndex < best.itemIndex)
+			{
+				currentByList.put(p.list, p);
+			}
+		}
+		for (Placement p : currentByList.values())
+		{
+			p.current = true;
+		}
+
 		// Update the live filter set, then drive core to filter + lay out the bank. openTag relayouts
 		// immediately, so the window advances live as items are withdrawn.
 		windowIds.clear();
@@ -326,6 +355,26 @@ class RegearBankController
 			tagManager.registerTag(REGEAR_TAG, id -> windowIds.contains(itemManager.canonicalize(id)));
 			tagManager.setHidden(REGEAR_TAG, true);
 			tagRegistered = true;
+		}
+	}
+
+	/**
+	 * Force the bank widget to rebuild so a layout change shows at once. Panel and config edits
+	 * need this: openTag with our tag already active does not rebuild the view by itself, so
+	 * without a bank/inventory change the new window would not appear until the next natural
+	 * rebuild (a withdrawal, a tab click, or reopening the bank). The same call core's own tag
+	 * tabs use. Client thread only.
+	 */
+	void forceRebuild()
+	{
+		if (!lastApplied)
+		{
+			return;
+		}
+		final Widget bank = client.getWidget(InterfaceID.Bankmain.ITEMS);
+		if (bank != null && !bank.isHidden())
+		{
+			bankSearch.layoutBank();
 		}
 	}
 

@@ -60,7 +60,6 @@ class RegearPanel extends PluginPanel
 	private final JComboBox<Integer> visibleCount = new JComboBox<>(visibleCounts());
 	private final JComboBox<PatternPreset> patternSelector = new JComboBox<>(PatternPreset.values());
 	private final JTextField customField = new JTextField();
-	private final JComboBox<String> completionSelector = new JComboBox<>();
 	private final PatternPreview preview = new PatternPreview();
 	private final JTextField colField = new JTextField(3);
 	private final JTextField rowField = new JTextField(3);
@@ -68,10 +67,13 @@ class RegearPanel extends PluginPanel
 	private final JTextField idField = new JTextField();
 	private final JPanel warningsPanel = new JPanel();
 	private final JLabel completionInfo = new JLabel();
+	private final JLabel fitWarning = new JLabel();
 	private final JLabel pickHint = new JLabel();
 	private final JButton tutorialButton = new JButton("Tutorial");
 	private final JCheckBox hideTutorialBox = new JCheckBox();
 	private final JButton hideOverlayButton = new JButton("Hide overlay");
+	private final JCheckBox showIdsBox = new JCheckBox("Show item ids");
+	private final JCheckBox showEquipBox = new JCheckBox("Show equipment while banking");
 	private javax.swing.Timer flashTimer;
 	private boolean flashOn;
 
@@ -104,17 +106,18 @@ class RegearPanel extends PluginPanel
 		content.add(enabledRow());
 		content.add(enableAllRow());
 		content.add(hideOverlayRow());
+		content.add(showIdsRow());
 		content.add(labeled("Visible", visibleCount));
 		content.add(labeled("Pattern", patternSelector));
 		content.add(customFieldRow());
 		content.add(vspace());
 		content.add(patternPreviewHeader());
 		content.add(preview);
+		content.add(fitWarning);
 		content.add(vspace());
 		content.add(section("Bank position"));
 		content.add(anchorRow());
 		content.add(vspace());
-		content.add(labeled("On finish", completionSelector));
 		content.add(completionInfo);
 		content.add(resetRow());
 		content.add(vspace());
@@ -132,6 +135,12 @@ class RegearPanel extends PluginPanel
 		warningsPanel.setLayout(new BoxLayout(warningsPanel, BoxLayout.Y_AXIS));
 		completionInfo.setFont(FontManager.getRunescapeSmallFont());
 		completionInfo.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+		fitWarning.setText("<html><body style='width:185px'>Pattern falls off the bank grid from this"
+			+ " anchor - move the anchor left or up.</body></html>");
+		fitWarning.setFont(FontManager.getRunescapeSmallFont());
+		fitWarning.setForeground(ColorScheme.PROGRESS_ERROR_COLOR);
+		fitWarning.setAlignmentX(LEFT_ALIGNMENT);
+		fitWarning.setVisible(false);
 		pickHint.setFont(FontManager.getRunescapeSmallFont());
 		pickHint.setForeground(ColorScheme.BRAND_ORANGE);
 		pickHint.setAlignmentX(LEFT_ALIGNMENT);
@@ -302,12 +311,40 @@ class RegearPanel extends PluginPanel
 
 	private JComponent equipmentRow()
 	{
-		final JCheckBox box = new JCheckBox("Show equipment while banking");
-		box.setToolTipText("Show a movable panel of your worn equipment while the bank is open (drag it anywhere)");
-		box.setAlignmentX(LEFT_ALIGNMENT);
-		box.setSelected(plugin.getConfig().showEquipmentOverlay());
-		box.addActionListener(e -> plugin.setShowEquipment(box.isSelected()));
-		return box;
+		showEquipBox.setToolTipText("Show a movable panel of your worn equipment while the bank is open (drag it anywhere)");
+		showEquipBox.setAlignmentX(LEFT_ALIGNMENT);
+		showEquipBox.setSelected(plugin.getConfig().showEquipmentOverlay());
+		showEquipBox.addActionListener(e -> plugin.setShowEquipment(showEquipBox.isSelected()));
+		return showEquipBox;
+	}
+
+	/** Quick toggle for the item id overlay, mirrored with the same setting in the plugin options. */
+	private JComponent showIdsRow()
+	{
+		showIdsBox.setToolTipText(
+			"Draw each item's id over items in the bank, inventory and equipment (same as the Item id overlay option)");
+		showIdsBox.setAlignmentX(LEFT_ALIGNMENT);
+		showIdsBox.setSelected(plugin.getConfig().showItemIds());
+		showIdsBox.addActionListener(e -> plugin.setShowItemIds(showIdsBox.isSelected()));
+		return showIdsBox;
+	}
+
+	/** Mirror plugin-options state into the panel's toggles; called on any Regear config change. */
+	void syncFromConfig()
+	{
+		showIdsBox.setSelected(plugin.getConfig().showItemIds());
+		showEquipBox.setSelected(plugin.getConfig().showEquipmentOverlay());
+		updateHideOverlayButton();
+		updateTutorialButton();
+		completionInfo.setText(completionText());
+	}
+
+	private String completionText()
+	{
+		// The width style makes the JLabel compute its preferred height WRAPPED; without it,
+		// BoxLayout sizes the label for one unwrapped line and clips the second line.
+		return "<html><body style='width:185px'>On finish: " + plugin.getConfig().defaultCompletion()
+			+ ". Applies to all lists (plugin options).</body></html>";
 	}
 
 	private void exportCurrent()
@@ -435,8 +472,8 @@ class RegearPanel extends PluginPanel
 		row.add(colField);
 		row.add(muted("Row"));
 		row.add(rowField);
-		colField.setToolTipText("Anchor column 0-7 (0 = left, 7 = right edge)");
-		rowField.setToolTipText("Anchor row from the top of the bank (0-based)");
+		colField.setToolTipText("Anchor column 0-7: the numbers across the TOP of the preview (0 = left edge)");
+		rowField.setToolTipText("Anchor row: the numbers down the LEFT of the preview (0 = top of the bank)");
 		return row;
 	}
 
@@ -528,6 +565,7 @@ class RegearPanel extends PluginPanel
 			{
 				list.items.add(new RegearItem(id));
 			}
+			plugin.freshenBaseline(ids);
 			plugin.commit();
 			if (created)
 			{
@@ -646,13 +684,6 @@ class RegearPanel extends PluginPanel
 				});
 			}
 		});
-		completionSelector.addActionListener(e ->
-		{
-			if (!loading)
-			{
-				mutate(list -> list.completion = completionFromSelector());
-			}
-		});
 		customField.addActionListener(e -> commitCustomOffsets());
 		customField.addFocusListener(new java.awt.event.FocusAdapter()
 		{
@@ -685,7 +716,10 @@ class RegearPanel extends PluginPanel
 
 	private List<RegearList> lists()
 	{
-		return plugin.getData().lists;
+		// Null-guarded: plugin shutDown() clears the data while a queued repaint can still reach
+		// the preview (which reads other lists' footprints) through this accessor.
+		final RegearData data = plugin.getData();
+		return data == null ? java.util.Collections.emptyList() : data.lists;
 	}
 
 	private RegearList selectedList()
@@ -761,6 +795,7 @@ class RegearPanel extends PluginPanel
 			return;
 		}
 		list.items.add(new RegearItem(id));
+		plugin.freshenBaseline(java.util.Collections.singletonList(id));
 		plugin.commit();
 		refreshForSelection();
 	}
@@ -801,15 +836,8 @@ class RegearPanel extends PluginPanel
 		customField.setEnabled(has);
 		colField.setEnabled(has);
 		rowField.setEnabled(has);
-		completionSelector.setEnabled(has);
 
-		completionSelector.removeAllItems();
-		completionSelector.addItem("Default (global)");
-		for (CompletionBehavior b : CompletionBehavior.values())
-		{
-			completionSelector.addItem(b.toString());
-		}
-
+		completionInfo.setText(completionText());
 		if (has)
 		{
 			enabledToggle.setSelected(list.enabled);
@@ -819,16 +847,14 @@ class RegearPanel extends PluginPanel
 			customField.setText(offsetsToText(list.customOffsets));
 			colField.setText(Integer.toString(list.anchorSlot % RegearList.BANK_COLUMNS));
 			rowField.setText(Integer.toString(list.anchorSlot / RegearList.BANK_COLUMNS));
-			completionSelector.setSelectedIndex(list.completion == null ? 0 : list.completion.ordinal() + 1);
-			completionInfo.setText("<html>Default: " + plugin.getConfig().defaultCompletion() + "</html>");
 			visibleCount.setEnabled(list.pattern != PatternPreset.SINGLE && list.pattern != PatternPreset.CUSTOM);
 			preview.setList(list);
 		}
 		else
 		{
 			preview.setList(null);
-			completionInfo.setText("");
 		}
+		fitWarning.setVisible(has && !list.fitsGrid());
 		loading = false;
 
 		pickHint.setVisible(pickAltFor >= 0);
@@ -1160,6 +1186,7 @@ class RegearPanel extends PluginPanel
 		{
 			it.alts.add(altId);
 		}
+		plugin.freshenBaseline(java.util.Collections.singletonList(altId));
 		plugin.commit();
 	}
 
@@ -1253,12 +1280,6 @@ class RegearPanel extends PluginPanel
 		refreshForSelection();
 	}
 
-	private CompletionBehavior completionFromSelector()
-	{
-		final int i = completionSelector.getSelectedIndex();
-		return i <= 0 ? null : CompletionBehavior.values()[i - 1];
-	}
-
 	// --- parsing helpers ---------------------------------------------------------------------------
 
 	private static Integer parseId(String text)
@@ -1347,23 +1368,29 @@ class RegearPanel extends PluginPanel
 	// --- pattern preview ---------------------------------------------------------------------------
 
 	/**
-	 * A grid preview that mirrors the bank/inventory with squares. In "click to set" mode each left
-	 * click adds (or removes) a lane at that cell, numbered in click order, so the pattern can be built
-	 * by clicking instead of typing offsets.
+	 * A to-scale preview of the top of the bank: numbered column and row axes matching the real bank
+	 * grid, this list's lanes as numbered green cells at their actual bank positions (anchor +
+	 * pattern), the anchor cell outlined orange, and the slots other ENABLED lists occupy in gray so
+	 * a new pattern can be placed around them. In "click to set" mode each left click adds (or
+	 * removes) a lane at that bank cell, numbered in click order.
 	 */
 	private final class PatternPreview extends JPanel
 	{
 		private static final int CELL = 20;
-		private static final int OX = 4;
-		private static final int OY = 4;
+		private static final int AXIS_W = 16;
+		private static final int AXIS_H = 13;
+		private static final int OX = 2 + AXIS_W;
+		private static final int OY = 2 + AXIS_H;
+		private static final int MIN_ROWS = 7;
+		private static final int MAX_ROWS = 16;
 		private RegearList list;
 
 		PatternPreview()
 		{
-			setPreferredSize(new Dimension(PANEL_WIDTH - 20, OY * 2 + 7 * CELL));
-			setMaximumSize(new Dimension(Integer.MAX_VALUE, OY * 2 + 7 * CELL));
 			setAlignmentX(LEFT_ALIGNMENT);
 			setBackground(ColorScheme.DARKER_GRAY_COLOR);
+			setToolTipText("<html>The bank as Regear sees it: columns 0-7 across the top, rows down the left.<br>"
+				+ "Orange outline = this list's anchor (the Col/Row fields). Gray = other enabled lists.</html>");
 			addMouseListener(new MouseAdapter()
 			{
 				@Override
@@ -1373,11 +1400,13 @@ class RegearPanel extends PluginPanel
 					{
 						return;
 					}
-					final int col = (e.getX() - OX) / CELL;
-					final int row = (e.getY() - OY) / CELL;
-					if (col >= 0 && row >= 0 && col < gridCols() && row < gridRows())
+					final int col = Math.floorDiv(e.getX() - OX, CELL);
+					final int rel = Math.floorDiv(e.getY() - OY, CELL);
+					if (col >= 0 && rel >= 0 && col < RegearList.BANK_COLUMNS && rel < displayRows())
 					{
-						toggleOffset(col, row);
+						// Clicks land on absolute bank cells; the pattern stores them anchor-relative.
+						toggleOffset(col - list.anchorSlot % RegearList.BANK_COLUMNS,
+							rowStart() + rel - list.anchorSlot / RegearList.BANK_COLUMNS);
 					}
 				}
 			});
@@ -1386,41 +1415,73 @@ class RegearPanel extends PluginPanel
 		void setList(RegearList list)
 		{
 			this.list = list;
+			revalidate();
 			repaint();
 		}
 
-		private int gridCols()
+		/**
+		 * First bank row shown. Normally 0; when this list is anchored so deep that its pattern
+		 * would fall past the row cap, the view windows down to keep the anchor and lanes visible
+		 * (the row axis labels stay the real bank row numbers).
+		 */
+		private int rowStart()
 		{
-			if (patternClickMode)
+			if (list == null)
 			{
-				return RegearList.BANK_COLUMNS;
+				return 0;
 			}
-			int maxX = 0;
-			if (list != null)
+			final int anchorRow = list.anchorSlot / RegearList.BANK_COLUMNS;
+			int selMin = anchorRow;
+			int selMax = anchorRow;
+			for (PatternOffset o : list.effectiveOffsets())
 			{
-				for (PatternOffset o : list.effectiveOffsets())
-				{
-					maxX = Math.max(maxX, o.x);
-				}
+				selMin = Math.min(selMin, anchorRow + o.y);
+				selMax = Math.max(selMax, anchorRow + o.y);
 			}
-			return Math.max(1, maxX + 1);
+			if (selMax + 2 <= MAX_ROWS)
+			{
+				return 0;
+			}
+			return Math.max(0, selMin - 1);
 		}
 
-		private int gridRows()
+		/** Rows shown: enough to cover this list's pattern and every other enabled list's, min 7. */
+		private int displayRows()
 		{
-			if (patternClickMode)
-			{
-				return 7;
-			}
-			int maxY = 0;
+			int maxRow = MIN_ROWS - 2;
 			if (list != null)
 			{
+				final int anchorRow = list.anchorSlot / RegearList.BANK_COLUMNS;
+				maxRow = Math.max(maxRow, anchorRow);
 				for (PatternOffset o : list.effectiveOffsets())
 				{
-					maxY = Math.max(maxY, o.y);
+					maxRow = Math.max(maxRow, anchorRow + o.y);
 				}
 			}
-			return Math.max(1, maxY + 1);
+			for (RegearList other : lists())
+			{
+				if (other == null || other == list || !other.enabled)
+				{
+					continue;
+				}
+				for (int slot : other.footprintSlots())
+				{
+					maxRow = Math.max(maxRow, slot / RegearList.BANK_COLUMNS);
+				}
+			}
+			return Math.min(MAX_ROWS, Math.max(MIN_ROWS, maxRow + 2 - rowStart()));
+		}
+
+		@Override
+		public Dimension getPreferredSize()
+		{
+			return new Dimension(PANEL_WIDTH - 20, OY + displayRows() * CELL + 2);
+		}
+
+		@Override
+		public Dimension getMaximumSize()
+		{
+			return new Dimension(Integer.MAX_VALUE, OY + displayRows() * CELL + 2);
 		}
 
 		@Override
@@ -1433,9 +1494,26 @@ class RegearPanel extends PluginPanel
 			}
 			final Graphics2D g = (Graphics2D) g0;
 			g.setRenderingHint(RenderingHints.KEY_ANTIALIASING, RenderingHints.VALUE_ANTIALIAS_ON);
-			final int cols = gridCols();
-			final int rows = gridRows();
-			// Empty grid squares so the layout reads like an inventory/bank.
+			final int cols = RegearList.BANK_COLUMNS;
+			final int rows = displayRows();
+			final int start = rowStart();
+
+			// Axis numbers, so the Col/Row anchor fields map straight onto what you see.
+			g.setFont(FontManager.getRunescapeSmallFont());
+			g.setColor(ColorScheme.LIGHT_GRAY_COLOR);
+			for (int x = 0; x < cols; x++)
+			{
+				final String n = String.valueOf(x);
+				g.drawString(n, OX + x * CELL + (CELL - g.getFontMetrics().stringWidth(n)) / 2, OY - 3);
+			}
+			for (int y = 0; y < rows; y++)
+			{
+				final String n = String.valueOf(start + y);
+				g.drawString(n, OX - 4 - g.getFontMetrics().stringWidth(n),
+					OY + y * CELL + (CELL + g.getFontMetrics().getAscent()) / 2 - 2);
+			}
+
+			// Empty grid squares so the layout reads like the real bank.
 			for (int y = 0; y < rows; y++)
 			{
 				for (int x = 0; x < cols; x++)
@@ -1448,18 +1526,48 @@ class RegearPanel extends PluginPanel
 					g.drawRect(cx, cy, CELL - 1, CELL - 1);
 				}
 			}
-			// Numbered green cells for the pattern lanes.
+
+			// Slots other enabled lists occupy, in gray, so this pattern can be placed around them.
+			g.setColor(new Color(130, 130, 130, 150));
+			for (RegearList other : lists())
+			{
+				if (other == null || other == list || !other.enabled)
+				{
+					continue;
+				}
+				for (int slot : other.footprintSlots())
+				{
+					final int y = slot / cols - start;
+					if (y >= 0 && y < rows)
+					{
+						g.fillRect(OX + slot % cols * CELL + 1, OY + y * CELL + 1, CELL - 3, CELL - 3);
+					}
+				}
+			}
+
+			// The anchor cell, outlined so the Col/Row fields have a visible target.
+			final int anchorCol = list.anchorSlot % cols;
+			final int anchorRow = list.anchorSlot / cols;
+			if (anchorRow - start >= 0 && anchorRow - start < rows)
+			{
+				g.setColor(ColorScheme.BRAND_ORANGE);
+				g.drawRect(OX + anchorCol * CELL, OY + (anchorRow - start) * CELL, CELL - 1, CELL - 1);
+			}
+
+			// Numbered green cells for this list's lanes, at their real bank positions.
 			g.setFont(FontManager.getRunescapeBoldFont());
 			final List<PatternOffset> offs = list.effectiveOffsets();
 			for (int i = 0; i < offs.size(); i++)
 			{
 				final PatternOffset o = offs.get(i);
-				if (o.x < 0 || o.y < 0)
+				final int x = anchorCol + o.x;
+				final int y = anchorRow + o.y - start;
+				if (x < 0 || x >= cols || y < 0 || y >= rows)
 				{
 					continue;
 				}
-				final int cx = OX + o.x * CELL;
-				final int cy = OY + o.y * CELL;
+				final int cx = OX + x * CELL;
+				final int cy = OY + y * CELL;
 				g.setColor(new Color(0, 200, 83, 160));
 				g.fillRect(cx + 1, cy + 1, CELL - 3, CELL - 3);
 				g.setColor(Color.WHITE);

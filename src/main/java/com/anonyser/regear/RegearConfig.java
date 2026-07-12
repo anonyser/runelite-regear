@@ -87,22 +87,38 @@ public interface RegearConfig extends Config
 
 	@Alpha
 	@ConfigItem(
-		keyName = "activeColor",
-		name = "Active highlight",
-		description = "Colour of the box around the current active item slots.",
+		// Fresh key (was activeColor): the meaning changed from "the one highlight" to "the boxes
+		// you are NOT on yet", so an old saved colour must not carry over and drown the new scheme.
+		keyName = "slotColor",
+		name = "Slot boxes",
+		description = "Colour of the box around the active item slots you are not on yet.",
 		position = 3,
 		section = bankSection
 	)
-	default Color activeColor()
+	default Color slotColor()
 	{
-		return new Color(0, 200, 83, 180);
+		return new Color(0, 110, 45, 200);
+	}
+
+	@Alpha
+	@ConfigItem(
+		keyName = "currentColor",
+		name = "Current click",
+		description = "Colour of the box around the slot to click next; it moves through the<br>"
+			+ "withdraw order in real time as you take items out.",
+		position = 4,
+		section = bankSection
+	)
+	default Color currentColor()
+	{
+		return new Color(70, 255, 70, 255);
 	}
 
 	@ConfigItem(
 		keyName = "showLaneNumbers",
 		name = "Show lane numbers",
 		description = "Number each active slot so the intended click order is obvious.",
-		position = 4,
+		position = 5,
 		section = bankSection
 	)
 	default boolean showLaneNumbers()
@@ -114,7 +130,7 @@ public interface RegearConfig extends Config
 		keyName = "showNextPreview",
 		name = "Show next item",
 		description = "Draw a small preview of the item each lane will advance to next.",
-		position = 5,
+		position = 6,
 		section = bankSection
 	)
 	default boolean showNextPreview()
@@ -191,8 +207,8 @@ public interface RegearConfig extends Config
 	@ConfigItem(
 		keyName = "defaultCompletion",
 		name = "When a list finishes",
-		description = "Default behaviour once every lane has run past the end of a list.<br>"
-			+ "A list can override this from the side panel.",
+		description = "What happens once every lane has run past the end of a list.<br>"
+			+ "Applies to every saved list.",
 		position = 0,
 		section = behaviourSection
 	)

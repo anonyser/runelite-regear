@@ -243,6 +243,7 @@ public class RegearPlugin extends Plugin
 			clientThread.invoke(() ->
 			{
 				applyBankLayout();
+				bankController.forceRebuild();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -349,6 +350,7 @@ public class RegearPlugin extends Plugin
 				clientThread.invoke(() ->
 				{
 					applyBankLayout();
+					bankController.forceRebuild();
 					SwingUtilities.invokeLater(this::refreshWarnings);
 				});
 			}
@@ -371,6 +373,9 @@ public class RegearPlugin extends Plugin
 			{
 				reconcileAll();
 				applyBankLayout();
+				// A panel edit changes what the bank should show without any container change, so
+				// nothing would rebuild the bank view until the next withdrawal or reopen -- force it.
+				bankController.forceRebuild();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -415,6 +420,7 @@ public class RegearPlugin extends Plugin
 			clientThread.invoke(() ->
 			{
 				applyBankLayout();
+				bankController.forceRebuild();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -448,12 +454,25 @@ public class RegearPlugin extends Plugin
 				lower.add(l.name.toLowerCase());
 			}
 		}
+		final Set<Integer> freshIds = new HashSet<>();
 		for (RegearList l : incoming)
 		{
 			l.name = RegearShare.uniqueName(l.name, lower);
 			lower.add(l.name.toLowerCase());
 			data.lists.add(l);
+			for (RegearItem it : l.items)
+			{
+				if (it != null)
+				{
+					freshIds.add(it.id);
+					if (it.alts != null)
+					{
+						freshIds.addAll(it.alts);
+					}
+				}
+			}
 		}
+		freshenBaseline(freshIds);
 		commit();
 		return incoming.size();
 	}
@@ -461,6 +480,35 @@ public class RegearPlugin extends Plugin
 	void setShowEquipment(boolean show)
 	{
 		configManager.setConfiguration(RegearConfig.GROUP, "showEquipmentOverlay", show);
+	}
+
+	void setShowItemIds(boolean show)
+	{
+		configManager.setConfiguration(RegearConfig.GROUP, "showItemIds", show);
+	}
+
+	/**
+	 * Treat the given item ids as not-yet-withdrawn from here: raise their baseline to the current
+	 * inventory count. Called when items are ADDED to a list while banking -- a copy already in the
+	 * inventory (typically withdrawn moments before being added) would otherwise count as withdrawn
+	 * progress and the fresh lane would park past the item instead of showing it in the bank. Also
+	 * resets any progress other lists had recorded for the same id, which matches what adding an
+	 * item mid-run means: start it fresh.
+	 */
+	void freshenBaseline(java.util.Collection<Integer> ids)
+	{
+		if (ids.isEmpty() || !bankOpen)
+		{
+			return;
+		}
+		clientThread.invoke(() ->
+		{
+			final Map<Integer, Integer> cur = currentInventory();
+			for (int id : ids)
+			{
+				baseline.put(id, cur.getOrDefault(id, 0));
+			}
+		});
 	}
 
 	// --- Persistence -------------------------------------------------------------------------------
@@ -573,7 +621,31 @@ public class RegearPlugin extends Plugin
 	@Subscribe
 	public void onItemContainerChanged(ItemContainerChanged event)
 	{
-		if (event.getContainerId() != InventoryID.INVENTORY.getId())
+		final int containerId = event.getContainerId();
+		if (containerId == InventoryID.BANK.getId())
+		{
+			// A deposit landing can change what the guide should show: the inventory event can fire
+			// before the bank container holds the deposited item, so the layout pass reads it as
+			// missing. This later bank event repopulates its slot live. Only re-apply when a lane
+			// moved or a slot is showing as missing -- the deposit may be exactly what it waits
+			// for -- so plain withdrawals (already applied via the inventory event) skip the
+			// second full relayout.
+			if (bankOpen)
+			{
+				final boolean changed = reconcileAll();
+				if (changed)
+				{
+					save();
+				}
+				if (changed || !bankController.getMissingLabels().isEmpty())
+				{
+					applyBankLayout();
+					SwingUtilities.invokeLater(this::refreshWarnings);
+				}
+			}
+			return;
+		}
+		if (containerId != InventoryID.INVENTORY.getId())
 		{
 			return;
 		}
@@ -600,11 +672,25 @@ public class RegearPlugin extends Plugin
 		{
 			return;
 		}
+		// Our own list saves land here too (save() writes the data key). Everything a save should
+		// trigger is already done explicitly by the caller, so skip it: otherwise every withdrawal
+		// would re-apply the bank layout a second time for nothing.
+		if (DATA_KEY.equals(event.getKey()))
+		{
+			return;
+		}
 		if ("openPanel".equals(event.getKey()) && config.openPanel() && navButton != null)
 		{
 			clientToolbar.openPanel(navButton);
 			configManager.setConfiguration(RegearConfig.GROUP, "openPanel", false);
 			return;
+		}
+		// Keep the side panel's mirrored toggles (item ids, equipment, on-finish info) in step with
+		// the plugin options, whichever side the change came from.
+		if (panel != null)
+		{
+			final RegearPanel p = panel;
+			SwingUtilities.invokeLater(p::syncFromConfig);
 		}
 		// Any other Regear setting may change what the bank should show: re-apply while open.
 		if (bankOpen)
@@ -613,6 +699,7 @@ public class RegearPlugin extends Plugin
 			{
 				applyDragDelay();
 				applyBankLayout();
+				bankController.forceRebuild();
 				SwingUtilities.invokeLater(this::refreshWarnings);
 			});
 		}
@@ -631,21 +718,36 @@ public class RegearPlugin extends Plugin
 	@Subscribe
 	public void onMenuEntryAdded(MenuEntryAdded event)
 	{
-		// Append "Add to Regear" once per item, keyed off its Examine entry (bank/inventory/equipment).
-		if (panel == null || !"Examine".equals(event.getOption()))
+		if (panel == null)
 		{
 			return;
 		}
-		final int id = event.getItemId();
+		// Append "Add to Regear" once per item, keyed off its Examine entry (bank/inventory/equipment).
+		// The inventory beside an OPEN bank has no Examine option (only Deposit-x), so there key off
+		// Deposit-All instead -- still exactly one entry per item.
+		final boolean examine = "Examine".equals(event.getOption());
+		final boolean bankSideInventory = !examine
+			&& "Deposit-All".equals(event.getOption())
+			&& event.getActionParam1() == InterfaceID.Bankside.ITEMS;
+		if (!examine && !bankSideInventory)
+		{
+			return;
+		}
+		int id = event.getItemId();
+		if (id <= 0 && event.getMenuEntry().getWidget() != null)
+		{
+			id = event.getMenuEntry().getWidget().getItemId();
+		}
 		if (id <= 0)
 		{
 			return;
 		}
+		final int itemId = id;
 		client.getMenu().createMenuEntry(-1)
 			.setOption(ADD_OPTION)
 			.setTarget(event.getTarget())
 			.setType(MenuAction.RUNELITE)
-			.onClick(e -> SwingUtilities.invokeLater(() -> panel.addItemToSelected(id)));
+			.onClick(e -> SwingUtilities.invokeLater(() -> panel.addItemToSelected(itemId)));
 	}
 
 	// --- Rotation / detection ----------------------------------------------------------------------
@@ -710,7 +812,77 @@ public class RegearPlugin extends Plugin
 				changed = true;
 			}
 		}
+		// Loop to start: once every enabled list has run past its end, restart the whole sequence
+		// from the current inventory so the rotation goes around again. Whole-sequence because the
+		// baseline (what "withdrawn" is measured against) is shared across lists. Skipped when the
+		// restart would leave nothing pending (e.g. every item skip-if-worn and worn) -- otherwise a
+		// list that completes with zero withdrawals would restart again on every event, forever.
+		if (config.defaultCompletion() == CompletionBehavior.LOOP && anyEnabledComplete()
+			&& restartWouldPend(worn))
+		{
+			captureBaseline();
+			for (RegearList list : data.lists)
+			{
+				if (list == null || !list.enabled)
+				{
+					continue;
+				}
+				list.resetLanes();
+				// Re-derive immediately so worn skip-if-worn items are skipped, not shown missing.
+				reconcile(list, new HashMap<>(), worn);
+				// resetLanes cleared the anti-mash holds, including the one just armed on the slot
+				// that finished the round -- re-arm every lane so a mash at the rollover cannot
+				// instantly pull the new round's items.
+				if (config.holdTicks() > 0)
+				{
+					for (int k = 0; k < list.laneCount(); k++)
+					{
+						list.holdLane(k, tick + config.holdTicks());
+					}
+				}
+			}
+			changed = true;
+		}
 		return changed;
+	}
+
+	/** True if restarting the sequence would leave at least one item actually pending withdrawal. */
+	private boolean restartWouldPend(Set<Integer> worn)
+	{
+		for (RegearList list : data.lists)
+		{
+			if (list == null || !list.enabled)
+			{
+				continue;
+			}
+			for (RegearItem it : list.items)
+			{
+				if (it != null && !(it.skipIfWorn && wornCovers(it, worn)))
+				{
+					return true;
+				}
+			}
+		}
+		return false;
+	}
+
+	/** True if at least one enabled, non-empty list exists and every such list has finished. */
+	private boolean anyEnabledComplete()
+	{
+		boolean any = false;
+		for (RegearList list : data.lists)
+		{
+			if (list == null || !list.enabled || list.items.isEmpty())
+			{
+				continue;
+			}
+			if (!list.isComplete())
+			{
+				return false;
+			}
+			any = true;
+		}
+		return any;
 	}
 
 	private Set<Integer> equippedIds()
@@ -851,6 +1023,7 @@ public class RegearPlugin extends Plugin
 			reconcileAll();
 			save();
 			applyBankLayout();
+			bankController.forceRebuild();
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		});
 	}
@@ -871,16 +1044,21 @@ public class RegearPlugin extends Plugin
 			reconcileAll();
 			save();
 			applyBankLayout();
+			bankController.forceRebuild();
 			SwingUtilities.invokeLater(this::refreshWarnings);
 		});
 	}
 
 	private boolean resetLists(CompletionBehavior trigger)
 	{
+		if (config.defaultCompletion() != trigger)
+		{
+			return false;
+		}
 		boolean any = false;
 		for (RegearList list : data.lists)
 		{
-			if (list != null && list.effectiveCompletion(config.defaultCompletion()) == trigger)
+			if (list != null)
 			{
 				list.resetLanes();
 				any = true;
