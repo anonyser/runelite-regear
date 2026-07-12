@@ -19,6 +19,12 @@ class RegearList
 {
 	static final int BANK_COLUMNS = 8;
 
+	/**
+	 * Stable identifier, assigned once and persisted, so a group can reference this list by something
+	 * that survives a rename. The field initializer covers both the no-arg (Gson) and named
+	 * constructors; a legacy save with no id in its JSON keeps the fresh one assigned here.
+	 */
+	String id = newId();
 	String name;
 	boolean enabled;
 	List<RegearItem> items = new ArrayList<>();
@@ -58,6 +64,12 @@ class RegearList
 		this.name = name;
 	}
 
+	/** A fresh, unique list id. */
+	static String newId()
+	{
+		return java.util.UUID.randomUUID().toString();
+	}
+
 	/**
 	 * The default anchor slot for the Nth enabled list: first sits at column 6 ~4 rows down (leaving
 	 * room for the two-column default Z pattern to reach column 7), each later list steps two columns
@@ -73,6 +85,10 @@ class RegearList
 	/** Repairs nulls and clamps ranges after a config load, where Gson may have left gaps. */
 	void normalize()
 	{
+		if (id == null || id.isEmpty())
+		{
+			id = newId();
+		}
 		if (items == null)
 		{
 			items = new ArrayList<>();

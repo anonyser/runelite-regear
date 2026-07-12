@@ -459,6 +459,9 @@ public class RegearPlugin extends Plugin
 		{
 			l.name = RegearShare.uniqueName(l.name, lower);
 			lower.add(l.name.toLowerCase());
+			// A fresh list id locally, so importing the same share twice never yields two lists that
+			// share an id (which a group reference could not tell apart). Groups aren't shared.
+			l.id = RegearList.newId();
 			data.lists.add(l);
 			for (RegearItem it : l.items)
 			{

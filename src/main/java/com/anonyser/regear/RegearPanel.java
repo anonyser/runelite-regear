@@ -14,7 +14,9 @@ import java.awt.RenderingHints;
 import java.awt.event.MouseAdapter;
 import java.awt.event.MouseEvent;
 import java.util.ArrayList;
+import java.util.HashSet;
 import java.util.List;
+import java.util.Set;
 import javax.swing.BorderFactory;
 import javax.swing.Box;
 import javax.swing.BoxLayout;
@@ -55,8 +57,8 @@ class RegearPanel extends PluginPanel
 	private final ItemManager itemManager;
 	private final ClientThread clientThread;
 
-	private final JComboBox<String> listSelector = new JComboBox<>();
-	private final JCheckBox enabledToggle = new JCheckBox("Enabled");
+	private final ListSelector listSelector = new ListSelector();
+	private final JComboBox<String> groupSelector = new JComboBox<>();
 	private final JComboBox<Integer> visibleCount = new JComboBox<>(visibleCounts());
 	private final JComboBox<PatternPreset> patternSelector = new JComboBox<>(PatternPreset.values());
 	private final JTextField customField = new JTextField();
@@ -103,8 +105,13 @@ class RegearPanel extends PluginPanel
 		content.add(listButtonsRow());
 		content.add(shareRow());
 		content.add(vspace());
-		content.add(enabledRow());
 		content.add(enableAllRow());
+		content.add(vspace());
+		content.add(section("Groups"));
+		content.add(labeled("Group", groupSelector));
+		content.add(groupEnableRow());
+		content.add(groupButtonsRow());
+		content.add(vspace());
 		content.add(hideOverlayRow());
 		content.add(showIdsRow());
 		content.add(labeled("Visible", visibleCount));
@@ -217,12 +224,6 @@ class RegearPanel extends PluginPanel
 		row.add(compact(button("Rename", e -> renameList())));
 		row.add(compact(button("Delete", e -> deleteList())));
 		return row;
-	}
-
-	private JComponent enabledRow()
-	{
-		enabledToggle.setAlignmentX(LEFT_ALIGNMENT);
-		return enabledToggle;
 	}
 
 	private JComponent enableAllRow()
@@ -654,14 +655,6 @@ class RegearPanel extends PluginPanel
 
 	private void wireListeners()
 	{
-		listSelector.addActionListener(e ->
-		{
-			if (!loading)
-			{
-				refreshForSelection();
-			}
-		});
-		enabledToggle.addActionListener(e -> mutate(list -> list.enabled = enabledToggle.isSelected()));
 		visibleCount.addActionListener(e ->
 		{
 			if (!loading)
@@ -753,16 +746,8 @@ class RegearPanel extends PluginPanel
 		SwingUtilities.invokeLater(() ->
 		{
 			loading = true;
-			final int keep = listSelector.getSelectedIndex();
-			listSelector.removeAllItems();
-			for (RegearList list : lists())
-			{
-				listSelector.addItem(list.name);
-			}
-			if (listSelector.getItemCount() > 0)
-			{
-				listSelector.setSelectedIndex(Math.max(0, Math.min(keep, listSelector.getItemCount() - 1)));
-			}
+			listSelector.reloadItems();
+			reloadGroups();
 			loading = false;
 			refreshForSelection();
 		});
@@ -830,7 +815,6 @@ class RegearPanel extends PluginPanel
 		final RegearList list = selectedList();
 		loading = true;
 		final boolean has = list != null;
-		enabledToggle.setEnabled(has);
 		visibleCount.setEnabled(has);
 		patternSelector.setEnabled(has);
 		customField.setEnabled(has);
@@ -840,7 +824,6 @@ class RegearPanel extends PluginPanel
 		completionInfo.setText(completionText());
 		if (has)
 		{
-			enabledToggle.setSelected(list.enabled);
 			visibleCount.setSelectedItem(list.visibleCount);
 			patternSelector.setSelectedItem(list.pattern);
 			customField.setVisible(list.pattern == PatternPreset.CUSTOM);
@@ -1144,6 +1127,11 @@ class RegearPanel extends PluginPanel
 		if (ok == JOptionPane.YES_OPTION)
 		{
 			lists().remove(list);
+			// Keep groups honest: a deleted list can't stay a member of anything.
+			for (RegearGroup g : groups())
+			{
+				g.memberIds.remove(list.id);
+			}
 			plugin.commit();
 			reload();
 		}
@@ -1240,6 +1228,296 @@ class RegearPanel extends PluginPanel
 		}
 		plugin.commit();
 		refreshForSelection();
+	}
+
+	// --- groups ------------------------------------------------------------------------------------
+
+	private List<RegearGroup> groups()
+	{
+		final RegearData data = plugin.getData();
+		return data == null ? java.util.Collections.emptyList() : data.groups;
+	}
+
+	private RegearGroup selectedGroup()
+	{
+		final int i = groupSelector.getSelectedIndex();
+		return i >= 0 && i < groups().size() ? groups().get(i) : null;
+	}
+
+	/** Repopulate the group dropdown from the model, keeping the current pick where possible. */
+	private void reloadGroups()
+	{
+		final int keep = groupSelector.getSelectedIndex();
+		groupSelector.removeAllItems();
+		for (RegearGroup g : groups())
+		{
+			groupSelector.addItem(g.name);
+		}
+		if (groupSelector.getItemCount() > 0)
+		{
+			groupSelector.setSelectedIndex(Math.max(0, Math.min(keep, groupSelector.getItemCount() - 1)));
+		}
+	}
+
+	private JComponent groupEnableRow()
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 2, 3, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		final JButton on = compact(button("Enable group", e -> enableGroup()));
+		on.setToolTipText("Turn on only this group's setups and turn every other setup off");
+		final JButton off = compact(button("Disable group", e -> disableGroup()));
+		off.setToolTipText("Turn off this group's setups, leaving the rest as they are");
+		row.add(on);
+		row.add(off);
+		return row;
+	}
+
+	private JComponent groupButtonsRow()
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 3, 3, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
+		final JButton create = compact(button("Group checked", e -> groupFromChecked()));
+		create.setToolTipText("Make a new group from the setups currently enabled (checked in the dropdown)");
+		row.add(create);
+		row.add(compact(button("Rename", e -> renameGroup())));
+		row.add(compact(button("Delete", e -> deleteGroup())));
+		return row;
+	}
+
+	/** Enable exactly this group's setups and disable every other one — a one-click loadout switch. */
+	private void enableGroup()
+	{
+		final RegearGroup g = selectedGroup();
+		if (g == null)
+		{
+			JOptionPane.showMessageDialog(this, "No group yet. Enable the setups you want, then \"Group checked\".");
+			return;
+		}
+		for (RegearList l : lists())
+		{
+			l.enabled = g.contains(l.id);
+		}
+		plugin.commit();
+		refreshForSelection();
+	}
+
+	/** Turn off this group's setups; anything outside the group keeps its current state. */
+	private void disableGroup()
+	{
+		final RegearGroup g = selectedGroup();
+		if (g == null)
+		{
+			JOptionPane.showMessageDialog(this, "No group selected.");
+			return;
+		}
+		for (RegearList l : lists())
+		{
+			if (g.contains(l.id))
+			{
+				l.enabled = false;
+			}
+		}
+		plugin.commit();
+		refreshForSelection();
+	}
+
+	/** Snapshot the currently-enabled setups into a new named group. */
+	private void groupFromChecked()
+	{
+		final List<String> ids = new ArrayList<>();
+		for (RegearList l : lists())
+		{
+			if (l.enabled)
+			{
+				ids.add(l.id);
+			}
+		}
+		if (ids.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this,
+				"Tick the setups you want in the dropdown first, then click Group checked.");
+			return;
+		}
+		final String name = JOptionPane.showInputDialog(this, "Group name:", "Group " + (groups().size() + 1));
+		if (name == null || name.trim().isEmpty())
+		{
+			return;
+		}
+		final Set<String> lower = new HashSet<>();
+		for (RegearGroup g : groups())
+		{
+			if (g.name != null)
+			{
+				lower.add(g.name.toLowerCase());
+			}
+		}
+		final RegearGroup group = new RegearGroup(RegearShare.uniqueName(name.trim(), lower));
+		group.memberIds = ids;
+		groups().add(group);
+		plugin.commit();
+		reloadGroups();
+		SwingUtilities.invokeLater(() -> groupSelector.setSelectedIndex(groups().size() - 1));
+	}
+
+	private void renameGroup()
+	{
+		final RegearGroup g = selectedGroup();
+		if (g == null)
+		{
+			return;
+		}
+		final String name = JOptionPane.showInputDialog(this, "New group name:", g.name);
+		if (name != null && !name.trim().isEmpty())
+		{
+			g.name = name.trim();
+			plugin.commit();
+			reloadGroups();
+		}
+	}
+
+	private void deleteGroup()
+	{
+		final RegearGroup g = selectedGroup();
+		if (g == null)
+		{
+			return;
+		}
+		final int ok = JOptionPane.showConfirmDialog(this,
+			"Delete group \"" + g.name + "\"? Your setups are not affected.",
+			"Delete group", JOptionPane.YES_NO_OPTION);
+		if (ok == JOptionPane.YES_OPTION)
+		{
+			groups().remove(g);
+			plugin.commit();
+			reloadGroups();
+		}
+	}
+
+	/**
+	 * The setup dropdown, now a checklist. Each row is a checkbox — the list's enabled state — plus
+	 * its name: ticking a checkbox enables or disables that setup and keeps the menu open so several
+	 * can be set in a row; clicking a name picks that setup for editing and closes the menu. Closed,
+	 * the control shows the selected setup's name. Enable all / Disable all and the group buttons all
+	 * drive the same enabled flags, so the checkmarks always reflect what is on at the bank.
+	 */
+	private final class ListSelector extends JPanel
+	{
+		private final JButton button = new JButton();
+		private final JLabel caret = new JLabel("▾");
+		private int selectedIndex = -1;
+
+		ListSelector()
+		{
+			super(new BorderLayout(4, 0));
+			setAlignmentX(LEFT_ALIGNMENT);
+			setMaximumSize(new Dimension(Integer.MAX_VALUE, 26));
+			setOpaque(false);
+			button.setHorizontalAlignment(SwingConstants.LEFT);
+			button.setFocusPainted(false);
+			button.setFont(FontManager.getRunescapeFont());
+			button.setToolTipText("Pick a setup to edit; tick a checkbox to enable it at the bank");
+			button.addActionListener(e -> showMenu());
+			caret.setForeground(ColorScheme.LIGHT_GRAY_COLOR);
+			caret.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+			caret.addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					showMenu();
+				}
+			});
+			add(button, BorderLayout.CENTER);
+			add(caret, BorderLayout.EAST);
+			updateText();
+		}
+
+		int getSelectedIndex()
+		{
+			return selectedIndex;
+		}
+
+		void setSelectedIndex(int i)
+		{
+			final int size = lists().size();
+			selectedIndex = size == 0 ? -1 : Math.max(0, Math.min(i, size - 1));
+			updateText();
+			if (!loading)
+			{
+				refreshForSelection();
+			}
+		}
+
+		/** Clamp the selection to the current setups and refresh the label; the editor is refreshed by the caller. */
+		void reloadItems()
+		{
+			final int size = lists().size();
+			selectedIndex = size == 0 ? -1 : Math.max(0, Math.min(selectedIndex, size - 1));
+			updateText();
+		}
+
+		private void updateText()
+		{
+			final List<RegearList> ls = lists();
+			button.setText(selectedIndex >= 0 && selectedIndex < ls.size()
+				? ls.get(selectedIndex).name : "(no setups)");
+		}
+
+		private void showMenu()
+		{
+			final JPopupMenu menu = new JPopupMenu();
+			final List<RegearList> ls = lists();
+			if (ls.isEmpty())
+			{
+				final JMenuItem none = new JMenuItem("No setups yet - use New");
+				none.setEnabled(false);
+				menu.add(none);
+			}
+			final int width = Math.max(150, button.getWidth());
+			for (int i = 0; i < ls.size(); i++)
+			{
+				menu.add(menuRow(menu, ls.get(i), i, width));
+			}
+			menu.show(button, 0, button.getHeight());
+		}
+
+		private Component menuRow(JPopupMenu menu, RegearList list, int index, int width)
+		{
+			final JPanel row = new JPanel(new BorderLayout(6, 0));
+			row.setBorder(BorderFactory.createEmptyBorder(2, 6, 2, 8));
+			row.setPreferredSize(new Dimension(width, 24));
+			row.setBackground(index == selectedIndex
+				? ColorScheme.DARKER_GRAY_HOVER_COLOR : ColorScheme.DARKER_GRAY_COLOR);
+			final JCheckBox cb = new JCheckBox();
+			cb.setSelected(list.enabled);
+			cb.setOpaque(false);
+			cb.setToolTipText("Enable \"" + list.name + "\" at the bank");
+			cb.addActionListener(e ->
+			{
+				list.enabled = cb.isSelected();
+				plugin.commit();
+				// Preview footprints and warnings follow the new enabled set; the menu stays open.
+				refreshForSelection();
+			});
+			final JLabel name = new JLabel(list.name);
+			name.setForeground(Color.WHITE);
+			name.setToolTipText("Edit \"" + list.name + "\"");
+			name.setCursor(java.awt.Cursor.getPredefinedCursor(java.awt.Cursor.HAND_CURSOR));
+			name.addMouseListener(new MouseAdapter()
+			{
+				@Override
+				public void mousePressed(MouseEvent e)
+				{
+					menu.setVisible(false);
+					setSelectedIndex(index);
+				}
+			});
+			row.add(cb, BorderLayout.WEST);
+			row.add(name, BorderLayout.CENTER);
+			return row;
+		}
 	}
 
 	private void commitAnchor()
