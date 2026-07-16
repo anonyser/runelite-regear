@@ -111,6 +111,7 @@ class RegearPanel extends PluginPanel
 		content.add(labeled("Group", groupSelector));
 		content.add(groupEnableRow());
 		content.add(groupButtonsRow());
+		content.add(groupManageRow());
 		content.add(vspace());
 		content.add(hideOverlayRow());
 		content.add(showIdsRow());
@@ -1348,12 +1349,23 @@ class RegearPanel extends PluginPanel
 
 	private JComponent groupButtonsRow()
 	{
-		final JPanel row = new JPanel(new GridLayout(1, 3, 3, 0));
+		final JPanel row = new JPanel(new GridLayout(1, 2, 3, 0));
 		row.setAlignmentX(LEFT_ALIGNMENT);
 		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		final JButton create = compact(button("Group checked", e -> groupFromChecked()));
 		create.setToolTipText("Make a new group from the setups currently enabled (checked in the dropdown)");
+		final JButton update = compact(button("Update group", e -> updateGroupFromChecked()));
+		update.setToolTipText("Replace the selected group's setups with the ones currently enabled");
 		row.add(create);
+		row.add(update);
+		return row;
+	}
+
+	private JComponent groupManageRow()
+	{
+		final JPanel row = new JPanel(new GridLayout(1, 2, 3, 0));
+		row.setAlignmentX(LEFT_ALIGNMENT);
+		row.setMaximumSize(new Dimension(Integer.MAX_VALUE, 24));
 		row.add(compact(button("Rename", e -> renameGroup())));
 		row.add(compact(button("Delete", e -> deleteGroup())));
 		return row;
@@ -1434,6 +1446,41 @@ class RegearPanel extends PluginPanel
 		SwingUtilities.invokeLater(() -> groupSelector.setSelectedIndex(groups().size() - 1));
 	}
 
+	/** Overwrite the selected group's members with the setups currently enabled. */
+	private void updateGroupFromChecked()
+	{
+		final RegearGroup g = selectedGroup();
+		if (g == null)
+		{
+			JOptionPane.showMessageDialog(this, "No group selected.");
+			return;
+		}
+		final List<String> ids = new ArrayList<>();
+		for (RegearList l : lists())
+		{
+			if (l.enabled)
+			{
+				ids.add(l.id);
+			}
+		}
+		if (ids.isEmpty())
+		{
+			JOptionPane.showMessageDialog(this,
+				"Tick the setups you want in the group first, then click Update group.");
+			return;
+		}
+		final int ok = JOptionPane.showConfirmDialog(this,
+			"Update group \"" + g.name + "\" to the " + ids.size() + " setup(s) currently enabled?",
+			"Update group", JOptionPane.YES_NO_OPTION);
+		if (ok != JOptionPane.YES_OPTION)
+		{
+			return;
+		}
+		g.memberIds = ids;
+		plugin.commit();
+		reloadGroups();
+	}
+
 	private void renameGroup()
 	{
 		final RegearGroup g = selectedGroup();
@@ -1480,6 +1527,9 @@ class RegearPanel extends PluginPanel
 		private final JButton button = new JButton();
 		private final JLabel caret = new JLabel("▾");
 		private int selectedIndex = -1;
+		// When the open menu was last dismissed. A click on the button/caret that closes the menu
+		// also re-fires the open handler; this lets us swallow that one so the click toggles it shut.
+		private long menuHiddenAt;
 
 		ListSelector()
 		{
@@ -1540,7 +1590,32 @@ class RegearPanel extends PluginPanel
 
 		private void showMenu()
 		{
+			// A click that dismisses the open menu also lands on the button/caret and would reopen
+			// it instantly. Swallow an open that comes right after a close so the click toggles shut.
+			if (System.currentTimeMillis() - menuHiddenAt < 200)
+			{
+				return;
+			}
 			final JPopupMenu menu = new JPopupMenu();
+			menu.addPopupMenuListener(new javax.swing.event.PopupMenuListener()
+			{
+				@Override
+				public void popupMenuWillBecomeVisible(javax.swing.event.PopupMenuEvent e)
+				{
+				}
+
+				@Override
+				public void popupMenuWillBecomeInvisible(javax.swing.event.PopupMenuEvent e)
+				{
+					menuHiddenAt = System.currentTimeMillis();
+				}
+
+				@Override
+				public void popupMenuCanceled(javax.swing.event.PopupMenuEvent e)
+				{
+					menuHiddenAt = System.currentTimeMillis();
+				}
+			});
 			final List<RegearList> ls = lists();
 			if (ls.isEmpty())
 			{
