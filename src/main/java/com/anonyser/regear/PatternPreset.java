@@ -13,9 +13,12 @@ enum PatternPreset
 {
 	/** One position; the single visible item advances through the whole list in place. */
 	SINGLE("Single spot"),
-	/** A straight column: (0,0),(0,1),(0,2),(0,3). */
+	/** A straight column: (0,0),(0,1),(0,2),... */
 	VERTICAL("Vertical line"),
-	/** A compact block filling column 0 top-to-bottom then column 1: good for 4-way switches. */
+	/**
+	 * A compact block of two-tall column pairs marching right; when the next pair would run off the
+	 * bank's right edge it wraps to a fresh two-row band below, so any count up to 28 fits.
+	 */
 	Z("Z pattern"),
 	/** Lane offsets come from the list's custom pattern editor. */
 	CUSTOM("Custom");
@@ -34,12 +37,17 @@ enum PatternPreset
 	}
 
 	/**
-	 * The lane offsets for a preset at the given visible item count (1..4). CUSTOM returns an empty
+	 * The lane offsets for a preset at the given visible item count (1..28). CUSTOM returns an empty
 	 * list here — callers must use the list's stored custom offsets instead.
+	 *
+	 * @param availableCols columns from the anchor to the bank's right edge; Z wraps to a new
+	 *                      two-row band instead of marching past it. Pass the full bank width when
+	 *                      the anchor is at column 0.
 	 */
-	List<PatternOffset> offsetsFor(int visibleCount)
+	List<PatternOffset> offsetsFor(int visibleCount, int availableCols)
 	{
-		final int n = Math.max(1, Math.min(6, visibleCount));
+		final int n = Math.max(1, Math.min(28, visibleCount));
+		final int cols = Math.max(1, availableCols);
 		final List<PatternOffset> out = new ArrayList<>();
 		switch (this)
 		{
@@ -53,11 +61,13 @@ enum PatternPreset
 				}
 				break;
 			case Z:
-				// Fill column 0 top-to-bottom, then column 1 top-to-bottom:
-				// 1 item -> (0,0); 2 -> +(0,1); 3 -> +(1,0); 4 -> +(1,1).
+				// Two-tall column pairs marching right: (0,0),(0,1),(1,0),(1,1),... — and when a
+				// pair would pass the bank's right edge, wrap to a fresh two-row band underneath.
 				for (int i = 0; i < n; i++)
 				{
-					out.add(new PatternOffset(i / 2, i % 2));
+					final int pair = i / 2;
+					final int band = pair / cols;
+					out.add(new PatternOffset(pair % cols, band * 2 + i % 2));
 				}
 				break;
 			case CUSTOM:

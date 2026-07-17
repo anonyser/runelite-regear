@@ -160,10 +160,44 @@ public class RegearRotationTest
 		assertTrue(v.fitsGrid());
 
 		final RegearList z = list(PatternPreset.Z, 4, 4);
-		z.anchorSlot = 39; // col 7 -> the second column would fall off the grid
-		assertFalse(z.fitsGrid());
-		z.anchorSlot = 38; // col 6 -> now the two columns fit
+		z.anchorSlot = 39; // col 7 -> only one column of room, so the pairs wrap into a single column
 		assertTrue(z.fitsGrid());
+		assertEquals(39, z.absoluteSlot(0));
+		assertEquals(47, z.absoluteSlot(1));
+		assertEquals(55, z.absoluteSlot(2));
+		assertEquals(63, z.absoluteSlot(3));
+		z.anchorSlot = 38; // col 6 -> two columns of room, the classic two-wide Z block
+		assertTrue(z.fitsGrid());
+		assertEquals(38, z.absoluteSlot(0));
+		assertEquals(46, z.absoluteSlot(1));
+		assertEquals(39, z.absoluteSlot(2));
+		assertEquals(47, z.absoluteSlot(3));
+	}
+
+	@Test
+	public void presetsGoPastSixAndZWrapsAtTheBankEdge()
+	{
+		// Vertical: a straight column of all 28, no cap.
+		final RegearList v = list(PatternPreset.VERTICAL, 28, 28);
+		v.anchorSlot = 0;
+		assertEquals(28, v.laneCount());
+		assertEquals(27 * 8, v.absoluteSlot(27));
+		assertTrue(v.fitsGrid());
+
+		// Z from col 6: two columns of room -> pairs fill 2 wide, then wrap to a new band below.
+		final RegearList z = list(PatternPreset.Z, 8, 8);
+		z.anchorSlot = 38; // col 6, row 4
+		assertEquals(8, z.laneCount());
+		final List<PatternOffset> offs = z.effectiveOffsets();
+		assertEquals(0, offs.get(4).x); // fifth item starts the wrapped band...
+		assertEquals(2, offs.get(4).y); // ...two rows below the anchor
+		assertTrue(z.fitsGrid());
+
+		// Z from col 0 with the full 28: uses the whole 8-wide bank, 16 to a band, then wraps.
+		final RegearList full = list(PatternPreset.Z, 28, 28);
+		full.anchorSlot = 0;
+		assertEquals(28, full.laneCount());
+		assertTrue(full.fitsGrid());
 	}
 
 	@Test

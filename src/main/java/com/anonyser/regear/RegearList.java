@@ -126,7 +126,8 @@ class RegearList
 			}
 			return customOffsets.size() > 28 ? customOffsets.subList(0, 28) : customOffsets;
 		}
-		return pattern.offsetsFor(visibleCount);
+		// Presets wrap at the bank's right edge, so the width they can use depends on the anchor.
+		return pattern.offsetsFor(visibleCount, BANK_COLUMNS - anchorSlot % BANK_COLUMNS);
 	}
 
 	/** Number of visible lanes, i.e. the rotation step. */

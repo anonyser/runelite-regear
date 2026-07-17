@@ -137,7 +137,8 @@ class RegearTutorial
 		{
 			return new ArrayList<>();
 		}
-		return s.pattern.offsetsFor(s.count);
+		// Tutorial demos use at most 6 items from a roomy anchor, so the full bank width never wraps.
+		return s.pattern.offsetsFor(s.count, RegearList.BANK_COLUMNS);
 	}
 
 	int boxCount()

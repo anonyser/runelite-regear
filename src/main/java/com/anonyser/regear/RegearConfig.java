@@ -261,6 +261,21 @@ public interface RegearConfig extends Config
 	}
 
 	@ConfigItem(
+		keyName = "dragMode",
+		name = "Item drag",
+		description = "What dropping one item onto another does in the setup editor —<br>"
+			+ "the same two modes the bank has. Swap trades the two slots;<br>"
+			+ "Insert pushes everything between over by one.<br>"
+			+ "Also a dropdown above the items grid in the panel.",
+		position = 4,
+		section = behaviourSection
+	)
+	default DragMode dragMode()
+	{
+		return DragMode.SWAP;
+	}
+
+	@ConfigItem(
 		keyName = "openPanel",
 		name = "Open Regear panel",
 		description = "Tick to open the Regear side panel; it opens the panel then unticks itself.",

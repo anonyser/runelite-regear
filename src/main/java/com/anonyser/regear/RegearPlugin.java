@@ -490,6 +490,11 @@ public class RegearPlugin extends Plugin
 		configManager.setConfiguration(RegearConfig.GROUP, "showItemIds", show);
 	}
 
+	void setDragMode(DragMode mode)
+	{
+		configManager.setConfiguration(RegearConfig.GROUP, "dragMode", mode);
+	}
+
 	/**
 	 * Treat the given item ids as not-yet-withdrawn from here: raise their baseline to the current
 	 * inventory count. Called when items are ADDED to a list while banking -- a copy already in the

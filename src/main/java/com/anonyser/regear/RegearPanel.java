@@ -61,6 +61,7 @@ class RegearPanel extends PluginPanel
 	private final JComboBox<String> groupSelector = new JComboBox<>();
 	private final JComboBox<Integer> visibleCount = new JComboBox<>(visibleCounts());
 	private final JComboBox<PatternPreset> patternSelector = new JComboBox<>(PatternPreset.values());
+	private final JComboBox<DragMode> dragModeBox = new JComboBox<>(DragMode.values());
 	private final JTextField customField = new JTextField();
 	private final PatternPreview preview = new PatternPreview();
 	private final JTextField colField = new JTextField(3);
@@ -130,6 +131,18 @@ class RegearPanel extends PluginPanel
 		content.add(resetRow());
 		content.add(vspace());
 		content.add(section("Items (withdraw order)"));
+		dragModeBox.setToolTipText("What dropping one item onto another does — the bank's two modes. "
+			+ "Swap trades the two slots; Insert pushes everything between over by one.");
+		dragModeBox.setSelectedItem(plugin.getConfig().dragMode());
+		dragModeBox.addActionListener(e ->
+		{
+			final DragMode m = (DragMode) dragModeBox.getSelectedItem();
+			if (m != null)
+			{
+				plugin.setDragMode(m);
+			}
+		});
+		content.add(labeled("Drag", dragModeBox));
 		content.add(pickHint);
 		content.add(itemGrid);
 		content.add(vspace());
@@ -140,6 +153,8 @@ class RegearPanel extends PluginPanel
 		content.add(warningsPanel);
 		content.add(vspace());
 		content.add(equipmentRow());
+		// Trailing breathing room so the last row can scroll clear of the sidebar's bottom edge.
+		content.add(Box.createVerticalStrut(60));
 
 		warningsPanel.setLayout(new BoxLayout(warningsPanel, BoxLayout.Y_AXIS));
 		completionInfo.setFont(FontManager.getRunescapeSmallFont());
@@ -337,6 +352,7 @@ class RegearPanel extends PluginPanel
 	{
 		showIdsBox.setSelected(plugin.getConfig().showItemIds());
 		showEquipBox.setSelected(plugin.getConfig().showEquipmentOverlay());
+		dragModeBox.setSelectedItem(plugin.getConfig().dragMode());
 		updateHideOverlayButton();
 		updateTutorialButton();
 		completionInfo.setText(completionText());
@@ -1004,7 +1020,14 @@ class RegearPanel extends PluginPanel
 					final int target = slotIndexAt(e);
 					if (target >= 0 && target != dragFrom)
 					{
-						reorder(list, dragFrom, target);
+						if (plugin.getConfig().dragMode() == DragMode.SWAP)
+						{
+							swap(list, dragFrom, target);
+						}
+						else
+						{
+							reorder(list, dragFrom, target);
+						}
 					}
 				}
 				dragFrom = -1;
@@ -1130,6 +1153,18 @@ class RegearPanel extends PluginPanel
 		}
 		final RegearItem moved = list.items.remove(from);
 		list.items.add(to, moved);
+		plugin.commit();
+		refreshForSelection();
+	}
+
+	/** Drop-on-item in Swap mode: trade the two slots; everything else stays put. */
+	private void swap(RegearList list, int a, int b)
+	{
+		if (a < 0 || a >= list.items.size() || b < 0 || b >= list.items.size())
+		{
+			return;
+		}
+		java.util.Collections.swap(list.items, a, b);
 		plugin.commit();
 		refreshForSelection();
 	}
