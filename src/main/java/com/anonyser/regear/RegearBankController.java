@@ -17,7 +17,6 @@ import net.runelite.api.gameval.InterfaceID;
 import net.runelite.api.widgets.Widget;
 import net.runelite.client.game.ItemManager;
 import net.runelite.client.plugins.bank.BankSearch;
-import net.runelite.client.plugins.banktags.BankTagsPlugin;
 import net.runelite.client.plugins.banktags.BankTagsService;
 import net.runelite.client.plugins.banktags.TagManager;
 import net.runelite.client.plugins.banktags.tabs.Layout;
@@ -32,7 +31,7 @@ import net.runelite.client.plugins.banktags.tabs.LayoutManager;
  * predicate (a {@link net.runelite.client.plugins.banktags.BankTag}) for a private hidden tag, builds a
  * {@link Layout} mapping each active item to its slot, hands it to core's {@link LayoutManager} with
  * {@link LayoutManager#saveLayout(Layout)}, and opens the tag via
- * {@link BankTagsPlugin#openTag(String, Layout, int)} so core filters and lays the bank out live. It is
+ * {@link BankTagsService#openBankTag(String, int)} so core filters and lays the bank out live. It is
  * display-only: it never clicks or withdraws; the player does every click.</p>
  */
 @Singleton
@@ -81,7 +80,7 @@ class RegearBankController
 	private final Client client;
 	private final RegearConfig config;
 	private final ItemManager itemManager;
-	private final BankTagsPlugin bankTags;
+	private final BankTagsService bankTags;
 	private final TagManager tagManager;
 	private final LayoutManager layoutManager;
 	private final BankSearch bankSearch;
@@ -107,7 +106,7 @@ class RegearBankController
 
 	@Inject
 	RegearBankController(Client client, RegearConfig config, ItemManager itemManager,
-		BankTagsPlugin bankTags, TagManager tagManager, LayoutManager layoutManager, BankSearch bankSearch)
+		BankTagsService bankTags, TagManager tagManager, LayoutManager layoutManager, BankSearch bankSearch)
 	{
 		this.client = client;
 		this.config = config;
@@ -340,10 +339,10 @@ class RegearBankController
 		windowIds.clear();
 		windowIds.addAll(newWindow);
 		ensureTagRegistered();
-		// Store the layout on the tag through core's LayoutManager, then open it. openTag applies the same
-		// layout immediately (relayout) so the window advances live as items are withdrawn.
+		// Store the layout on the tag through core's LayoutManager, then open it. openBankTag loads that
+		// layout and applies it immediately (relayout) so the window advances live as items are withdrawn.
 		layoutManager.saveLayout(layout);
-		bankTags.openTag(REGEAR_TAG, layout, BankTagsService.OPTION_HIDE_TAG_NAME);
+		bankTags.openBankTag(REGEAR_TAG, BankTagsService.OPTION_HIDE_TAG_NAME);
 		lastApplied = true;
 	}
 
